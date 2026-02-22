@@ -21,7 +21,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 unsigned long lastBlink_time=0;
 unsigned long Blinkstart_time=0;
-unsigned long timeNow;
+unsigned long now;
 long interval=3500;
 long duration=150;
 int isBlinking=0;
@@ -49,16 +49,16 @@ void drawMouth() {
 }
 
 void updateBlink(){
-    timeNow=millis();
+    now=millis();
     
-    if(!isBlinking && timeNow-lastBlink_time>interval){
+    if(!isBlinking && now-lastBlink_time>interval){
         isBlinking=1;
-        Blinkstart_time=timeNow;
+        Blinkstart_time=now;
     }
     
-    if(isBlinking && timeNow-Blinkstart_time>duration){
+    if(isBlinking && now-Blinkstart_time>duration){
         isBlinking=0;
-        lastBlink_time=timeNow;
+        lastBlink_time=now;
 
         interval=random(3500,7000);
         duration=random(100,200);
