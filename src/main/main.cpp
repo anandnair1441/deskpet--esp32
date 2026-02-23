@@ -59,12 +59,20 @@ float moveTowards(float current, float target, float speed){
     return target;
 }
 
+
+//------------------Squint Styles------------------
+enum SquintStyle {
+    SQUINT_FLAT,
+    SQUINT_CRESCENT
+};
+
+SquintStyle currentSquintStyle;
+
 //-----------------------INPUT-----------------------
 
 void touchInput(){
     now = millis();
     bool touch = touchRead(TOUCH_PIN) < 60;
-    Serial.println(touchRead(TOUCH_PIN));
 
     // Rise
     if (touch && !isTouching){
@@ -111,23 +119,19 @@ void touchInput(){
 
 
 void drawCrescentEye(int centerX) {
-
     int centerY = EYE_Y + EYE_H / 2;
 
-    int radius = 14;   // Controls curve size
-    int thickness = 6; // Controls crescent thickness
+    float t = currentEyeH / EYE_H;  // gives 0.0 to 1.0
+    int radius = 10 + (int)(t * 4);       // scales 6 to 14 Controls ,curve size
+    int thickness = 3 + (int)(t * 5);    // scales 3 to 8 ,Controls crescent thickness
 
     // Draw full white circle
     display.fillCircle(centerX, centerY, radius, SSD1306_WHITE);
 
     // Cover bottom part with black rectangle
-    display.fillRect(centerX - radius,
-                     centerY,
-                     radius * 2,
-                     radius,
-                     SSD1306_BLACK);
+    display.fillRect(centerX - radius, centerY, radius * 2, radius, SSD1306_BLACK);
 
-    // Optional: thin bottom trim for smoother look
+    //thin bottom trim for smoother look
     display.fillCircle(centerX, centerY + thickness, radius, SSD1306_BLACK);
 }
 
@@ -136,8 +140,21 @@ void onSingleTap() {
     isSquinting = true;
     squintStartTime = millis();
 
+    // Randomly choose eye style
+    if (random(0, 2) == 0)
+        currentSquintStyle = SQUINT_FLAT;
+    else
+        currentSquintStyle = SQUINT_CRESCENT;
+
+    // 40% chance of bigger lower smile
+    if (random(0, 100) < 40) {
+        targetMouthSize = 13;  // Wider smile
+    } else {
+        targetMouthSize = 9;   // Normal smile
+    }
+
     targetEyeH = SQUINT_HEIGHT; // Partial close
-    targetMouthSize = 9.0;
+    
 }
 
 
@@ -146,6 +163,7 @@ void updateSquint(){
         if (millis() - squintStartTime > SQUINT_DURATION){
             isSquinting = false;
             targetEyeH = EYE_H;
+            targetMouthSize = 9.0;
             lastBlink_time = now;
         
         }
@@ -158,10 +176,19 @@ void updateSquint(){
 
     // post petting face
 
-    void drawEyes(){
-        if (isSquinting) {
-        drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);
-        drawCrescentEye(EYE_X_R + BASE_EYE_W / 2);
+void drawEyes(){
+    if (isSquinting) {
+        if (currentSquintStyle == SQUINT_CRESCENT) {
+            drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);
+            drawCrescentEye(EYE_X_R + BASE_EYE_W / 2);
+            return;
+        }
+        // Flat squint
+        int h = SQUINT_HEIGHT;
+        int ly = EYE_Y + (EYE_H - h) / 2;
+
+        display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
         return;
     }
 
