@@ -16,11 +16,12 @@ const int LONG_PRESS_TIME = 600;  // Time to hold before triggering Long Press
 unsigned long touchStartTime = 0;
 unsigned long lastTapTime = 0;
 bool isTouching = 0;
-int tapCount = 0;
-int singleTap = 0;
-int doubleTap = 0;
-int isLongpressing = 0;
-int releasedLongpress = 0;
+int touchCount = 0;
+int singleTouch = 0;
+int doubleTouch = 0;
+int isLongTouch = 0;
+int isPostTouch = 0;
+unsigned long postTouchStart = 0;
 
 //-----------------------Face geometry-----------------------
 #define BASE_EYE_W 30
@@ -31,7 +32,6 @@ int releasedLongpress = 0;
 #define EYE_RADIUS 8
 #define MOUTH_Y 42
 
-#define SQUINT_HEIGHT 12
 #define SQUINT_DURATION 1500
 
 
@@ -45,6 +45,7 @@ float currentEyeH = EYE_H;
 float targetEyeH = EYE_H;
 float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
+int mouth_shapa=0;
 
 //-----------------------ANIMATION-----------------------
 
@@ -79,40 +80,41 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         lastInteractionTime = now;
-        singleTap = 0;
-        doubleTap = 0;
-        releasedLongpress = 0;
+        singleTouch = 0;
+        doubleTouch = 0;
+        isPostTouch = 0;
     }
 
     // Hold
     if (touch && isTouching){
-        if (!isLongpressing && (now - touchStartTime > LONG_PRESS_TIME)){
-            isLongpressing = 1;
-            tapCount = 0;
+        if (!isLongTouch && (now - touchStartTime > LONG_PRESS_TIME)){
+            isLongTouch = 1;
+            touchCount = 0;
         }
     }
 
     // Fall
     if (!touch && isTouching){
         isTouching = 0;
-        if (isLongpressing){
-            isLongpressing = 0;
-            releasedLongpress = 1;
+        if (isLongTouch){
+            isLongTouch = 0;
+            isPostTouch = 1;
+            postTouchStart = now;
         }
         else{
-            tapCount++;
+            touchCount++;
             lastTapTime = now;
         }
     }
 
     // Timeout Check
-    if (!touch && !isLongpressing && tapCount > 0){
+    if (!touch && !isLongTouch && touchCount > 0){
         if (now - lastTapTime > DOUBLE_TAP_DELAY){
-            if (tapCount == 1)
-                singleTap = 1;
-            else if (tapCount >= 2)
-                doubleTap = 1;
-            tapCount = 0;
+            if (touchCount == 1)
+                singleTouch = 1;
+            else if (touchCount >= 2)
+                doubleTouch = 1;
+            touchCount = 0;
         }
     }
 }
@@ -136,7 +138,7 @@ void drawCrescentEye(int centerX) {
 }
 
  
-void onSingleTap() {                       
+void SingleTapAction() {                       
     isSquinting = true;
     squintStartTime = millis();
 
@@ -152,8 +154,9 @@ void onSingleTap() {
     } else {
         targetMouthSize = 9;   // Normal smile
     }
+}
 
-    targetEyeH = SQUINT_HEIGHT; // Partial close
+void LongPressAction();{
     
 }
 
@@ -177,6 +180,9 @@ void updateSquint(){
     // post petting face
 
 void drawEyes(){
+    int h;
+    int ly;
+    int radius;
     if (isSquinting) {
         if (currentSquintStyle == SQUINT_CRESCENT) {
             drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);
@@ -184,22 +190,19 @@ void drawEyes(){
             return;
         }
         // Flat squint
-        int h = SQUINT_HEIGHT;
-        int ly = EYE_Y + (EYE_H - h) / 2;
+        h = (int)currentEyeH;
+        radius=4;
+    }else{
+        h = (int)currentEyeH;
+        if (h < 2) h = 2;
+        radius = (h <= 4) ? 2 : EYE_RADIUS;
+        }
 
-        display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
-        display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
-        return;
-    }
+        //normal eyes
+        ly = EYE_Y + (EYE_H - h) / 2;
 
-    int h = (int)currentEyeH;
-    if (h < 2) h = 2;
-    int ly = EYE_Y + (EYE_H - h) / 2;
-
-    int radius = (h <= 4) ? 2 : EYE_RADIUS;
-
-    display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
-    display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
 }
 
 void drawMouth(){
@@ -210,7 +213,7 @@ void drawMouth(){
 }
 
 void updateBlink(){
-    if (isSquinting || isLongpressing || releasedLongpress) return;
+    if (isSquinting || isLongTouch || isPostTouch) return;
 
     now = millis();
     static long interval = 3500;
@@ -257,9 +260,13 @@ void loop(){
     updateBlink();
     updateSquint();
 
-    if (singleTap) {
-        onSingleTap();
-        singleTap = 0;
+    if (singleTouch) {
+        SingleTapAction();
+        singleTouch = 0;
+    }
+    if (isLongTouch) {
+        LongPressAction();
+        isLongTouch = 0;
     }
 
     currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
