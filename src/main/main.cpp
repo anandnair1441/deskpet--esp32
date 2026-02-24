@@ -5,7 +5,7 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_ADDR 0x3C
+#define OLR 0x3C
 #define TOUCH_PIN 4
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -13,15 +13,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 //-----------------------Input State Machine-----------------------
 const int DOUBLE_TAP_DELAY = 350; // Max time between taps for double-click
 const int LONG_PRESS_TIME = 600;  // Time to hold before triggering Long Press
-unsigned long touchStartTime = 0;
-unsigned long lastTapTime = 0;
-bool isTouching = 0;
-int touchCount = 0;
-int singleTouch = 0;
-int doubleTouch = 0;
-int isLongTouch = 0;
-int isPostTouch = 0;
-unsigned long postTouchStart = 0;
 
 //-----------------------Face geometry-----------------------
 #define BASE_EYE_W 30
@@ -34,25 +25,38 @@ unsigned long postTouchStart = 0;
 
 #define SQUINT_DURATION 1500
 
-
 unsigned long now;
-unsigned long lastBlink_time = 0;
+
+unsigned long touchStartTime = 0;
+unsigned long lastTapTime = 0;
+bool isTouching = 0;
+int touchCount = 0;
+int singleTouch = 0;
+int doubleTouch = 0;
+int isLongTouch = 0;
+int isPostTouch = 0;
+unsigned long postTouchStart = 0;
+bool isBeingPetted =0;
+
 unsigned long lastInteractionTime = 0;
-bool isSquinting = false;
+unsigned long lastBlink_time = 0;
+bool isSquinting = 0;
 unsigned long squintStartTime = 0;
+
 
 float currentEyeH = EYE_H;
 float targetEyeH = EYE_H;
 float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
-int mouth_shapa=0;
+int mouth_shape=0;
 
 //-----------------------ANIMATION-----------------------
 
 //-----------------------Tweening------------------------
 float moveTowards(float current, float target, float speed){
-    if (abs(current - target) < speed)
+    if (abs(current - target) <= speed)
         return target;
+
     if (current < target)
         return current + speed;
     if (current > target)
@@ -97,9 +101,24 @@ void touchInput(){
     if (!touch && isTouching){
         isTouching = 0;
         if (isLongTouch){
-            isLongTouch = 0;
-            isPostTouch = 1;
-            postTouchStart = now;
+            unsigned long holdDuration = now - touchStartTime;
+                if (holdDuration > 2000) {
+                    isLongTouch = 0;
+                    isBeingPetted=0;
+                    isPostTouch = 1;
+                    postTouchStart = now;
+                    mouth_shape=1;
+                    currentMouthSize=9.0;
+                    targetMouthSize=9.0;
+                }else{
+                    isLongTouch = 0;      
+                    isBeingPetted = 0;    
+                    targetEyeH = EYE_H;
+                    targetMouthSize = 9.0;
+                    mouth_shape = 0;
+                    currentMouthSize = 0.0;   // no mouth
+                    targetMouthSize = 0.0;
+                }
         }
         else{
             touchCount++;
@@ -137,11 +156,27 @@ void drawCrescentEye(int centerX) {
     display.fillCircle(centerX, centerY + thickness, radius, SSD1306_BLACK);
 }
 
+void drawPostPettingEyes() {
+    int cx_l = 38;
+    int cx_r = 90;
+    int eyeW = 18;   // narrow width
+    int eyeH = 28;   // tall height
+    int topY = EYE_Y + 4;
+
+    // Left eye — tall narrow dome: rounded rect for the arch, flat bottom via black rect
+    display.fillRoundRect(cx_l - eyeW/2, topY, eyeW, eyeH, eyeW/2, SSD1306_WHITE);
+    display.fillRect(cx_l - eyeW/2, topY + eyeH/2, eyeW, eyeH/2, SSD1306_BLACK);
+
+    // Right eye
+    display.fillRoundRect(cx_r - eyeW/2, topY, eyeW, eyeH, eyeW/2, SSD1306_WHITE);
+    display.fillRect(cx_r - eyeW/2, topY + eyeH/2, eyeW, eyeH/2, SSD1306_BLACK);
+}
+
  
 void SingleTapAction() {                       
     isSquinting = true;
     squintStartTime = millis();
-
+    targetEyeH = 12;
     // Randomly choose eye style
     if (random(0, 2) == 0)
         currentSquintStyle = SQUINT_FLAT;
@@ -157,7 +192,10 @@ void SingleTapAction() {
 }
 
 void LongPressAction(){
-    
+    isBeingPetted=1;
+    currentSquintStyle = SQUINT_CRESCENT;
+    targetEyeH = 6;
+    targetMouthSize = 0;
 }
 
 
@@ -183,7 +221,22 @@ void drawEyes(){
     int h;
     int ly;
     int radius;
-    if (isSquinting) {
+
+    if(isPostTouch){
+        if(mouth_shape==1){
+            drawPostPettingEyes();
+        }else{
+            drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);  // crescent for short press
+            drawCrescentEye(EYE_X_R + BASE_EYE_W / 2);
+        }return;
+    }
+    if(isBeingPetted==1){
+        drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);
+        drawCrescentEye(EYE_X_R + BASE_EYE_W / 2);
+        return;
+    }
+    
+    else if (isSquinting) {
         if (currentSquintStyle == SQUINT_CRESCENT) {
             drawCrescentEye(EYE_X_L + BASE_EYE_W / 2);
             drawCrescentEye(EYE_X_R + BASE_EYE_W / 2);
@@ -193,27 +246,43 @@ void drawEyes(){
         h = (int)currentEyeH;
         radius=4;
     }else{
+        //normal eyes
         h = (int)currentEyeH;
         if (h < 2) h = 2;
         radius = (h <= 4) ? 2 : EYE_RADIUS;
         }
-
-        //normal eyes
+        
         ly = EYE_Y + (EYE_H - h) / 2;
 
         display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
         display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
 }
 
+
+
+
 void drawMouth(){
+    if(mouth_shape == 1){
+       int leftX = 44;
+        int rightX = 74;
+        int baseY = MOUTH_Y + 10;
+        int hump = 8;
+
+        display.fillCircle(leftX,  baseY,        hump, SSD1306_WHITE);
+        display.fillCircle(leftX,  baseY - hump, hump, SSD1306_BLACK); // carve top
+
+        display.fillCircle(rightX, baseY,       hump, SSD1306_WHITE);
+        display.fillCircle(rightX, baseY - hump, hump, SSD1306_BLACK); // carve top
+        return;
+    } 
     int s = (int)currentMouthSize;
     if (s < 1) return;
-    display.fillCircle(64, MOUTH_Y + 5, s, SSD1306_WHITE);
-    display.fillCircle(64, MOUTH_Y + 1, s, SSD1306_BLACK);
+        display.fillCircle(64, MOUTH_Y + 5, s, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y + 1, s, SSD1306_BLACK);
 }
 
 void updateBlink(){
-    if (isSquinting || isLongTouch || isPostTouch) return;
+    if (isSquinting || isLongTouch || isPostTouch || isBeingPetted) return;
 
     now = millis();
     static long interval = 3500;
@@ -241,14 +310,22 @@ void updateBlink(){
 //  long press  → held over 600ms
 //  release     → finger lifted after long press
 
-
+void updatePostTouch(){
+        if (isPostTouch && now - postTouchStart > 1000){
+            isPostTouch = 0;
+            targetEyeH = EYE_H;
+            targetMouthSize = 9.0;
+            mouth_shape = 0;
+            lastBlink_time = now;
+        }
+    }
 
 
 void setup(){
     Serial.begin(115200);
     Wire.begin(21, 22);
 
-    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)){
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
         for (;;)
             ;
@@ -256,17 +333,18 @@ void setup(){
 }
 
 void loop(){
+Serial.println(mouth_shape);
     touchInput();   
     updateBlink();
     updateSquint();
+    updatePostTouch();
 
     if (singleTouch) {
         SingleTapAction();
         singleTouch = 0;
     }
-    if (isLongTouch) {
+    if (isLongTouch && !isBeingPetted) {
         LongPressAction();
-        isLongTouch = 0;
     }
 
     currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
