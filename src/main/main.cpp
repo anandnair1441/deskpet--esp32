@@ -12,8 +12,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 //-----------------------Input State Machine-----------------------
 #define TOUCH_PIN 4
-#define DOUBLE_TAP_DELAY 350; // Max time b/w taps for double-click
-#define LONG_PRESS_TIME 600;  // Time to hold before triggering Long Press
+#define DOUBLE_TAP_DELAY 350 // Max time b/w taps for double-click
+#define LONG_PRESS_TIME 600  // Time to hold before triggering Long Press
 #define PET_THRESHOLD 2000
 //-----------------------Face geometry-----------------------
 #define BASE_EYE_W 30
@@ -53,7 +53,7 @@ int mouth_shape = 0;
 
 
 
-void doubleTapAction();
+void doubleTapAction();void onTouchStart(); void onLongRelease();
 
 
 
@@ -85,32 +85,14 @@ SquintStyle currentSquintStyle;
 
 //-----------------------INPUT-----------------------
 
-void touchInput()
-{
-    now = millis();
+void touchInput(){
     bool touch = touchRead(TOUCH_PIN) < 60;
 
     // Rise
-    if (touch && !isTouching)
-    {
+    if (touch && !isTouching){
         isTouching = 1;
         touchStartTime = now;
-        lastInteractionTime = now;
-        singleTouch = 0;
-        doubleTouch = 0;
-        isPostTouch = 0;
-        mouth_shape = 0;     
-        targetMouthSize = 9.0;
-
-        if (isPostTouch){
-        // transition directly to squint, no flat frame
-        isSquinting = true;
-        squintStartTime = now;
-        targetEyeH = 12;
-        currentSquintStyle = SQUINT_CRESCENT;
-    }
-    
-    isPostTouch = 0;
+        onTouchStart();
     }
 
     // Hold
@@ -128,21 +110,7 @@ void touchInput()
         isTouching = 0;
 
         if (isLongTouch){
-            isLongTouch = 0;
-            isBeingPetted = 0;
-            bool fullPet = (now - touchStartTime)>PET_THRESHOLD;
-            
-            if (fullPet){
-                isPostTouch = 1;
-                postTouchStart = now;
-                mouth_shape = 1;
-                targetMouthSize = 9.0;
-            }
-            else{
-                targetEyeH = EYE_H;
-                targetMouthSize = 9.0;
-                mouth_shape = 0;
-            }
+            onLongRelease();
         }
         else{
             touchCount++;
@@ -163,6 +131,43 @@ void touchInput()
         }
     }
 }
+
+
+void onTouchStart(){
+    lastInteractionTime = now;
+    singleTouch = 0;
+    doubleTouch = 0;
+
+    if (isPostTouch){
+        isSquinting = true;
+        squintStartTime = now;
+        targetEyeH = 12;
+        currentSquintStyle = SQUINT_CRESCENT;
+    }
+
+    isPostTouch = 0;
+    mouth_shape = 0;
+    targetMouthSize = 9.0;
+}
+
+void onLongRelease(){
+    isLongTouch = 0;
+    isBeingPetted = 0;
+    bool fullPet = (now - touchStartTime) > PET_THRESHOLD;
+
+    if (fullPet){
+        isPostTouch = 1;
+        postTouchStart = now;
+        mouth_shape = 1;
+        targetMouthSize = 9.0;
+    } else {
+        targetEyeH = EYE_H;
+        targetMouthSize = 9.0;
+        mouth_shape = 0;
+    }
+}
+
+
 
 void drawCrescentEye(int centerX){
     int centerY = EYE_Y + EYE_H / 2;
@@ -244,7 +249,7 @@ void LongPressAction()
 
 void updateSquint(){
     if (isSquinting){
-        if (millis() - squintStartTime > SQUINT_DURATION){
+        if (now- squintStartTime > SQUINT_DURATION){
             isSquinting = false;
             targetEyeH = EYE_H;
             targetMouthSize = 9.0;
@@ -397,8 +402,7 @@ void setup()
     Serial.begin(115200);
     Wire.begin(21, 22);
 
-    if (!display.begin(SSD1306_SWITCHCAPVCC, OLR))
-    {
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
         for (;;)
             ;
@@ -434,6 +438,6 @@ void loop()
     drawEyes();
     drawMouth();
     display.display();
-    
+
     delay(20);
 }
