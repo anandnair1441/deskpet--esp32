@@ -156,7 +156,7 @@ void SingleTapAction() {
     }
 }
 
-void LongPressAction();{
+void LongPressAction(){
     
 }
 
