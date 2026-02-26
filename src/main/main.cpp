@@ -219,34 +219,38 @@ void drawCrescentEye(int centerX){
 
 void drawPostPettingEyes()
 {
-
-    int centerY = EYE_Y + 20;
-
-    int radiusX = 16;
-    int radiusY = 10;
-
-    int leftCX = 40;
-    int rightCX = 88;
+    // ----- Adjustable parameters -----
+    int radiusX = 10;    // smaller = less width
+    int radiusY = 20;   // larger = more height
+    int centery     = EYE_Y + (EYE_H /2);
+    int leftCX  = EYE_X_L + BASE_EYE_W / 2;
+    int rightCX = EYE_X_R + BASE_EYE_W / 2;
 
     for (int y = 0; y <= radiusY; y++)
     {
-
         float ratio = (float)y / radiusY;
+
+        // Ellipse equation
         int xSpan = radiusX * sqrt(1.0 - ratio * ratio);
 
         // Left eye
-        display.drawFastHLine(leftCX - xSpan,
-                              centerY - y,
-                              xSpan * 2,
-                              SSD1306_WHITE);
+        display.drawFastHLine(
+            leftCX - xSpan,
+            centery - y,
+            xSpan * 2,
+            SSD1306_WHITE
+        );
 
         // Right eye
-        display.drawFastHLine(rightCX - xSpan,
-                              centerY - y,
-                              xSpan * 2,
-                              SSD1306_WHITE);
+        display.drawFastHLine(
+            rightCX - xSpan,
+            centery - y,
+            xSpan * 2,
+            SSD1306_WHITE
+        );
     }
 }
+
 
 void SingleTapAction(){
     setState(STATE_SQUINTING);
