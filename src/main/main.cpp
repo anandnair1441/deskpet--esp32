@@ -19,10 +19,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 enum FaceState {
     STATE_NORMAL,
-    STATE_BLINKING,
     STATE_SQUINTING,
     STATE_PETTING,
-    STATE_POSTPET
+    STATE_POSTPET,
+    STATE_CRASH,
+    STATE_COOLDOWN
 };
 FaceState currentState =STATE_NORMAL;
 
@@ -36,7 +37,12 @@ FaceState currentState =STATE_NORMAL;
 #define EYE_RADIUS 8
 #define MOUTH_Y 42
 
-#define SQUINT_DURATION 1250
+#define SQUINT_DURA 1250
+
+#define COOLDOWN_DURA   6000
+#define FORGIVE_DURA    10000
+#define ANNOYED_DURA    600
+#define CRASH_DURA      900
 
 unsigned long now;
 
@@ -61,6 +67,16 @@ float targetEyeH = EYE_H;
 float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
 int mouth_shape = 0;
+
+int petCount=0;
+unsigned long forgiveElapsed=0;
+unsigned long cooldownStart=0;
+bool forgiveRunning=0;
+unsigned long forgiveLastTick = 0;
+unsigned long annoyStart = 0;
+unsigned long crashStart = 0;
+bool isAnnoyed = false;
+unsigned long annoyStart = 0;
 
 
 void onTouchStart();
@@ -93,18 +109,33 @@ void setState(FaceState State){
             mouth_shape=0;
             lastBlink_time=now;
             break;
-        case STATE_BLINKING:
-            targetEyeH=4.0;
-            break;
+
         case STATE_SQUINTING:
             targetEyeH=12.0;
             break;
-        case STATE_PETTING:
+        
+            case STATE_PETTING:
             targetEyeH=6.0;
             targetMouthSize=0;
             break;
-        case STATE_POSTPET:
-            targetEyeH=9.0;
+        
+            case STATE_POSTPET:
+            postTouchStart=now;
+            mouth_shape=1;
+            if (petCount <= 1)
+                targetMouthSize = 9.0;
+            else if (petCount == 2)
+                targetMouthSize = 7.0;
+            else
+                targetMouthSize = 5.0;
+            break;
+
+        case STATE_CRASH:
+            crashStart=now;
+            break;
+        
+            case STATE_COOLDOWN:
+            cooldownStart=now;
             break;
     }
 }
@@ -129,6 +160,7 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
+        targetEyeH = EYE_H; 
     }
 
     // Hold
@@ -179,7 +211,7 @@ void onTouchStart(){
         squintStartTime=now;
         currentSquintStyle = SQUINT_CRESCENT;
     }else{
-        setState(STATE_NORMAL);
+       
     }
     mouth_shape = 0;
     targetMouthSize = 9.0;
@@ -190,9 +222,10 @@ void onLongRelease(){
     bool fullPet = (now - touchStartTime) > PET_THRESHOLD;
 
     if (fullPet){
-        setState(STATE_POSTPET);
-        postTouchStart = now;
-        mouth_shape = 1;
+        petCount++;
+        if(petCount>=4)
+            setState(STATE_CRASH);
+        else setState(STATE_POSTPET);
     } else {
         setState(STATE_NORMAL);
     }
@@ -284,7 +317,7 @@ void LongPressAction()
 
 void updateSquint(){
     if (currentState==STATE_SQUINTING){
-        if (now- squintStartTime > SQUINT_DURATION){
+        if (now- squintStartTime > SQUINT_DURA){
             setState(STATE_NORMAL);
         }
     }
@@ -412,7 +445,29 @@ void updatePostTouch(){
        setState(STATE_NORMAL);
         mouth_shape = 0;
     }
+
+
+}void updateCooldown(){
+    if(currentState==STATE_COOLDOWN){
+        if(now-cooldownStart>=COOLDOWN_DURA){
+            setState(STATE_NORMAL);
+        }
+    }else if(currentState==STATE_CRASH){
+        if(now-crashStart>=CRASH_DURA){
+            setState(STATE_COOLDOWN);
+        }
+    }else if(isAnnoyed==1 && now-annoyStart>=ANNOYED_DURA){
+        isAnnoyed=0;
+        setState(STATE_COOLDOWN);
+    }
 }
+
+void updateForgive(){
+    
+}
+
+
+
 
 void setup()
 {
