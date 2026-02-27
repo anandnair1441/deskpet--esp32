@@ -22,9 +22,7 @@ enum FaceState {
     STATE_SQUINTING,
     STATE_PETTING,
     STATE_POSTPET,
-    STATE_CRASH,
-    STATE_COOLDOWN,
-    STATE_ANNOYED
+    STATE_EXCITED
 };
 FaceState currentState =STATE_NORMAL;
 
@@ -39,11 +37,8 @@ FaceState currentState =STATE_NORMAL;
 #define MOUTH_Y 42
 
 #define SQUINT_DURA 1250
-
-#define COOLDOWN_DURA   6000
-#define FORGIVE_DURA    10000
-#define ANNOYED_DURA    600
-#define CRASH_DURA      900
+#define EXCITED_CALM_TIME 8000
+#define PET_RESET_TIME    15000
 
 unsigned long now;
 
@@ -67,12 +62,8 @@ float targetMouthSize = 9.0;
 int mouth_shape = 0;
 
 int petCount=0;
-unsigned long forgiveElapsed=0;
-unsigned long cooldownStart=0;
-bool forgiveRunning=0;
-unsigned long forgiveLastTick = 0;
-unsigned long annoyStart = 0;
-unsigned long crashStart = 0;
+unsigned long excitedStart = 0;
+unsigned long lastPetTime = 0;
 
 void onTouchStart();
 void onLongRelease();
@@ -124,22 +115,12 @@ void setState(FaceState State){
                 targetMouthSize = 5.0;
             break;
 
-        case STATE_CRASH:
-            crashStart=now;
+        case STATE_EXCITED:
+            excitedStart=now;
+            targetEyeH = EYE_H + 6;  
+            targetMouthSize = 13.0;
+            mouth_shape = 0;
             break;
-        
-            case STATE_COOLDOWN:
-            cooldownStart=now;
-            mouth_shape=2;
-            targetMouthSize=9.0;
-            break;
-
-        case STATE_ANNOYED:
-            annoyStart = now;
-            cooldownStart = now;
-            mouth_shape=0;
-            targetMouthSize=0;
-            break;        
     }
 }
 
@@ -163,7 +144,8 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
-        targetEyeH = EYE_H; 
+        if(currentState != STATE_EXCITED)
+            targetEyeH = EYE_H; 
     }
 
     // Hold
@@ -209,10 +191,9 @@ void onTouchStart(){
     singleTouch = 0;
     doubleTouch = 0;
 
-
-    if(currentState == STATE_COOLDOWN || currentState == STATE_ANNOYED){
-        setState(STATE_ANNOYED);
-        return;
+    if(currentState == STATE_EXCITED){
+        excitedStart = now;   
+        return;              
     }
 
     if (currentState==STATE_POSTPET){
@@ -228,14 +209,20 @@ void onTouchStart(){
 
 void onLongRelease(){
     isLongTouch = 0;
+    if(currentState == STATE_EXCITED){ 
+        excitedStart = now;            
+        return;
+    }
     bool fullPet = (now - touchStartTime) > PET_THRESHOLD;
 
-    if (fullPet){
+    if(fullPet){
         petCount++;
-        if(petCount>=4)
-            setState(STATE_CRASH);
-        else setState(STATE_POSTPET);
-    } else {
+        lastPetTime=now;
+        if(petCount>=5)
+            setState(STATE_EXCITED);
+        else 
+            setState(STATE_POSTPET);
+    }else{
         setState(STATE_NORMAL);
     }
 }
@@ -370,37 +357,24 @@ void drawEyes()
             return;
         }
 
-        case STATE_CRASH:{
-            float t = (float)(now - crashStart) / CRASH_DURA;
-            if(t <= 0.25){
-                // wide eyes
-                display.fillRoundRect(EYE_X_L-4, EYE_Y, BASE_EYE_W+8, EYE_H, 3, SSD1306_WHITE);
-                display.fillRoundRect(EYE_X_R-4, EYE_Y, BASE_EYE_W+8, EYE_H, 3, SSD1306_WHITE);
-            } else {
-                // shrinking — use currentEyeH driven by tweening
-                int h      = (int)currentEyeH;
-                if(h < 2) h = 2;
-                int radius = (h <= 4) ? 2 : EYE_RADIUS;
-                int ly     = EYE_Y + (EYE_H - h) / 2;
-                display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
-                display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
-            }
-            return;
-        }
+        case STATE_EXCITED:{
+                // Wider and taller
+                int excitedW = BASE_EYE_W + 8;   // 38px
+                int excitedH = (int)currentEyeH; 
+                if(excitedH > EYE_H + 6) excitedH = EYE_H + 6;
 
-        case STATE_COOLDOWN:{
-            int h  = 14;
-            int ly = EYE_Y + (EYE_H - h) / 2;
-            display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
-            display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
-            return;
+                //sine jitter
+                float jitter = sin(now * 0.008) * 1.5;
+                int j = (int)jitter;
+
+                int ly = EYE_Y + (EYE_H - excitedH) / 2;
+
+                //  grow from center not left edge
+                display.fillRoundRect(EYE_X_L - 4 + j, ly, excitedW, excitedH, EYE_RADIUS, SSD1306_WHITE);
+                display.fillRoundRect(EYE_X_R - 4 + j, ly, excitedW, excitedH, EYE_RADIUS, SSD1306_WHITE);
+                return;
         }
         
-        case STATE_ANNOYED:{
-            display.fillRoundRect(EYE_X_L, EYE_Y+16, BASE_EYE_W, 16, 3, SSD1306_WHITE);
-            display.fillRoundRect(EYE_X_R, EYE_Y+14, BASE_EYE_W, 16, 3, SSD1306_WHITE);
-            return;
-        }
 
         default:{
             int h      = (int)currentEyeH;
@@ -411,11 +385,11 @@ void drawEyes()
             display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
             return;
         }
-    }
+   }
 }
 
-void drawMouth()
-{
+
+void drawMouth(){
 
     if (mouth_shape == 1){ // w mouth
         int cx = 64;
@@ -425,13 +399,6 @@ void drawMouth()
         display.drawLine(cx - 5, cy + 5, cx, cy + 2, SSD1306_WHITE);
         display.drawLine(cx, cy + 2, cx + 5, cy + 5, SSD1306_WHITE);
         display.drawLine(cx + 5, cy + 5, cx + 10, cy, SSD1306_WHITE);
-        return;
-    }
-    if(mouth_shape ==2){ //frown mouth
-        int s = (int)currentMouthSize;
-        if(s < 1) return;
-        display.fillCircle(64, MOUTH_Y+1, s, SSD1306_WHITE);
-        display.fillCircle(64, MOUTH_Y+5, s, SSD1306_BLACK);
         return;
     }
 
@@ -477,89 +444,42 @@ void updateBlink()
 
 void updatePostTouch(){
     if(currentState!=STATE_POSTPET) return;
-    unsigned long postDur = (petCount==1)?2000:(petCount==2)?1000:300;
+    unsigned long postDur = (petCount==1)?2000:(petCount==2)?1000:500;
     if (now - postTouchStart >= postDur){
     setState(STATE_NORMAL);
         mouth_shape = 0;
     }
 }
 
-void updateCooldown(){
-    if(currentState==STATE_COOLDOWN){
-        if(now-cooldownStart>=COOLDOWN_DURA){
-            setState(STATE_NORMAL);
-        }
-    }else if(currentState==STATE_CRASH){
-        if(now-crashStart>=CRASH_DURA){
-            setState(STATE_COOLDOWN);
-        }
-    }else if(currentState==STATE_ANNOYED && now-annoyStart>=ANNOYED_DURA){
-        setState(STATE_COOLDOWN);
+void updateExcited(){
+    if(currentState!=STATE_EXCITED)return;
+
+    if(now - excitedStart >= EXCITED_CALM_TIME){
+        petCount = 0;
+        setState(STATE_NORMAL);
     }
 }
 
-void updateForgive(){
-    if(petCount == 0)return;
-    bool isPaused =(currentState==STATE_COOLDOWN|| 
-                    currentState==STATE_CRASH || 
-                    currentState==STATE_PETTING || 
-                    currentState==STATE_POSTPET|| 
-                    currentState==STATE_ANNOYED);
-
-    if(isPaused){
-        if(forgiveRunning){
-            forgiveElapsed += now - forgiveLastTick;
-            forgiveRunning=0;
-        }
-    }else{
-        if(!forgiveRunning){
-        forgiveRunning = true;
-        forgiveLastTick = now;
-        }
-        if(forgiveElapsed + (now - forgiveLastTick)>=FORGIVE_DURA){
-            petCount=0;
-            forgiveElapsed=0;
-            forgiveRunning=0;
-            
-        }
+void updatePetReset(){
+    if(currentState == STATE_EXCITED) return;
+    if(petCount == 0) return;
+    if(now - lastPetTime >= PET_RESET_TIME){
+        petCount = 0;
     }
 }
 
-
-void updateCrash(){
-    if(currentState != STATE_CRASH) return;
-    unsigned long elapsed = now - crashStart;
-
-    //0.0 → 1.0
-    float progress = (float)elapsed / CRASH_DURA;
-
-    // 1.0 max
-    if (progress > 1.0)
-        progress = 1.0;
-
-    // 0 → 25%
-    if (progress <= 0.25){
-        targetEyeH = EYE_H;   
-        targetMouthSize = 14.0; 
-        mouth_shape = 0;        
-    }
-    // 25% → 100%
-    else{
-        // 25% → 100% into 0 → 1
-        float shrink = (progress - 0.25) / 0.75;
-
-        targetEyeH = EYE_H - shrink * (EYE_H - 14);
-
-        if (shrink > 0.5)
-            mouth_shape = 2;
-        else
-            mouth_shape = 0;
-        targetMouthSize = 14.0;
-    }if (elapsed >= CRASH_DURA)
-        setState(STATE_COOLDOWN);
+void updatePetting(){
+    if(currentState != STATE_PETTING) return;
+    targetEyeH = 6 + sin(now * 0.01) * 3;
 }
 
-
+void drawCalmBar(){
+    if(currentState != STATE_EXCITED) return;
+    float progress = (float)(now - excitedStart) / EXCITED_CALM_TIME;
+    if(progress > 1.0) progress = 1.0;
+    int barH = (int)(progress * 60);
+    display.fillRect(125, 62 - barH, 3, barH, SSD1306_WHITE);
+}
 
 void setup()
 {
@@ -580,27 +500,26 @@ void loop()
     touchInput();
     updateBlink();
     updateSquint();
-    updatePostTouch();
-    updateCooldown();
-    updateForgive();
-    updateCrash();  
+    updatePostTouch();  
+    updateExcited();   
+    updatePetReset();
+    updatePetting();
 
     if(singleTouch){
-    if(currentState==STATE_COOLDOWN || currentState==STATE_ANNOYED)
-        setState(STATE_ANNOYED);
-    else { SingleTapAction(); }
-    singleTouch = 0;
+        if(currentState != STATE_EXCITED)
+            SingleTapAction(); 
+        singleTouch = 0;
     }
     
     if (doubleTouch){ 
-        doubleTapAction(); 
+        if(currentState != STATE_EXCITED)
+            doubleTapAction(); 
         doubleTouch = 0; }
 
-    if(isLongTouch && currentState!=STATE_PETTING){
-        if(currentState==STATE_COOLDOWN || currentState==STATE_ANNOYED)
-            setState(STATE_ANNOYED);
-        else LongPressAction();
+    if(isLongTouch && currentState!=STATE_PETTING && currentState!=STATE_EXCITED){
+        LongPressAction();
     }
+    
 //----------------Tweening----------------
     currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
     currentMouthSize = moveTowards(currentMouthSize, targetMouthSize, 1.5);
@@ -608,6 +527,7 @@ void loop()
     display.clearDisplay();
     drawEyes();
     drawMouth();
+    drawCalmBar();
     display.display();
 
     delay(20);
