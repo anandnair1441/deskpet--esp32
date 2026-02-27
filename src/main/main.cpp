@@ -23,7 +23,8 @@ enum FaceState {
     STATE_PETTING,
     STATE_POSTPET,
     STATE_CRASH,
-    STATE_COOLDOWN
+    STATE_COOLDOWN,
+    STATE_ANNOYED
 };
 FaceState currentState =STATE_NORMAL;
 
@@ -53,13 +54,10 @@ int touchCount = 0;
 int singleTouch = 0;
 int doubleTouch = 0;
 int isLongTouch = 0;
-int isPostTouch = 0;
 unsigned long postTouchStart = 0;
-bool isBeingPetted = 0;
 
 unsigned long lastInteractionTime = 0;
 unsigned long lastBlink_time = 0;
-bool isSquinting = 0;
 unsigned long squintStartTime = 0;
 
 float currentEyeH = EYE_H;
@@ -74,13 +72,10 @@ unsigned long cooldownStart=0;
 bool forgiveRunning=0;
 unsigned long forgiveLastTick = 0;
 unsigned long annoyStart = 0;
-bool isAnnoyed = false;
-unsigned long annoyStart = 0;
 unsigned long crashStart = 0;
 
 void onTouchStart();
 void onLongRelease();
-
 
 
 //-----------------------ANIMATION-----------------------
@@ -113,12 +108,12 @@ void setState(FaceState State){
             targetEyeH=12.0;
             break;
         
-            case STATE_PETTING:
+        case STATE_PETTING:
             targetEyeH=6.0;
             targetMouthSize=0;
             break;
         
-            case STATE_POSTPET:
+        case STATE_POSTPET:
             postTouchStart=now;
             mouth_shape=1;
             if (petCount <= 1)
@@ -135,7 +130,16 @@ void setState(FaceState State){
         
             case STATE_COOLDOWN:
             cooldownStart=now;
+            mouth_shape=2;
+            targetMouthSize=9.0;
             break;
+
+        case STATE_ANNOYED:
+            annoyStart = now;
+            cooldownStart = now;
+            mouth_shape=0;
+            targetMouthSize=0;
+            break;        
     }
 }
 
@@ -205,6 +209,12 @@ void onTouchStart(){
     singleTouch = 0;
     doubleTouch = 0;
 
+
+    if(currentState == STATE_COOLDOWN || currentState == STATE_ANNOYED){
+        setState(STATE_ANNOYED);
+        return;
+    }
+
     if (currentState==STATE_POSTPET){
         setState(STATE_SQUINTING);
         squintStartTime=now;
@@ -229,8 +239,6 @@ void onLongRelease(){
         setState(STATE_NORMAL);
     }
 }
-
-
 
 void drawCrescentEye(int centerX){
     int centerY = EYE_Y + EYE_H / 2;
@@ -333,19 +341,20 @@ void drawEyes()
     int leftCX  = EYE_X_L + BASE_EYE_W / 2;
     int rightCX = EYE_X_R + BASE_EYE_W / 2;
     
-
      switch(currentState){
-        case STATE_POSTPET:
+        case STATE_POSTPET:{
             if (mouth_shape == 1) drawPostPettingEyes();
             else { drawCrescentEye(leftCX); drawCrescentEye(rightCX); }
             return;
+        }
 
-        case STATE_PETTING:
+        case STATE_PETTING:{
             drawCrescentEye(leftCX);
             drawCrescentEye(rightCX);
             return;
+        }
 
-        case STATE_SQUINTING:
+        case STATE_SQUINTING:{
             if (currentSquintStyle == SQUINT_CRESCENT){
                 drawCrescentEye(leftCX);
                 drawCrescentEye(rightCX);
@@ -359,8 +368,41 @@ void drawEyes()
                 display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
             }
             return;
+        }
 
-        default:
+        case STATE_CRASH:{
+            float t = (float)(now - crashStart) / CRASH_DURA;
+            if(t <= 0.25){
+                // wide eyes
+                display.fillRoundRect(EYE_X_L-4, EYE_Y, BASE_EYE_W+8, EYE_H, 3, SSD1306_WHITE);
+                display.fillRoundRect(EYE_X_R-4, EYE_Y, BASE_EYE_W+8, EYE_H, 3, SSD1306_WHITE);
+            } else {
+                // shrinking — use currentEyeH driven by tweening
+                int h      = (int)currentEyeH;
+                if(h < 2) h = 2;
+                int radius = (h <= 4) ? 2 : EYE_RADIUS;
+                int ly     = EYE_Y + (EYE_H - h) / 2;
+                display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
+                display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
+            }
+            return;
+        }
+
+        case STATE_COOLDOWN:{
+            int h  = 14;
+            int ly = EYE_Y + (EYE_H - h) / 2;
+            display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
+            display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
+            return;
+        }
+        
+        case STATE_ANNOYED:{
+            display.fillRoundRect(EYE_X_L, EYE_Y+16, BASE_EYE_W, 16, 3, SSD1306_WHITE);
+            display.fillRoundRect(EYE_X_R, EYE_Y+14, BASE_EYE_W, 16, 3, SSD1306_WHITE);
+            return;
+        }
+
+        default:{
             int h      = (int)currentEyeH;
             if (h < 2) h = 2;
             int radius = (h <= 4) ? 2 : EYE_RADIUS;
@@ -368,6 +410,7 @@ void drawEyes()
             display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
             display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
             return;
+        }
     }
 }
 
@@ -379,16 +422,17 @@ void drawMouth()
         int cy = MOUTH_Y + 4;
 
         display.drawLine(cx - 10, cy, cx - 5, cy + 5, SSD1306_WHITE);
-
         display.drawLine(cx - 5, cy + 5, cx, cy + 2, SSD1306_WHITE);
-
         display.drawLine(cx, cy + 2, cx + 5, cy + 5, SSD1306_WHITE);
-
         display.drawLine(cx + 5, cy + 5, cx + 10, cy, SSD1306_WHITE);
         return;
     }
-    else if(mouth_shape ==2){ //frown mouth
-        
+    if(mouth_shape ==2){ //frown mouth
+        int s = (int)currentMouthSize;
+        if(s < 1) return;
+        display.fillCircle(64, MOUTH_Y+1, s, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y+5, s, SSD1306_BLACK);
+        return;
     }
 
     int s = (int)currentMouthSize;
@@ -432,14 +476,15 @@ void updateBlink()
 //  release     → finger lifted after long press
 
 void updatePostTouch(){
-    if (currentState==STATE_POSTPET && now - postTouchStart > 1000)
-    {
-       setState(STATE_NORMAL);
+    if(currentState!=STATE_POSTPET) return;
+    unsigned long postDur = (petCount==1)?2000:(petCount==2)?1000:300;
+    if (now - postTouchStart >= postDur){
+    setState(STATE_NORMAL);
         mouth_shape = 0;
     }
+}
 
-
-}void updateCooldown(){
+void updateCooldown(){
     if(currentState==STATE_COOLDOWN){
         if(now-cooldownStart>=COOLDOWN_DURA){
             setState(STATE_NORMAL);
@@ -448,8 +493,7 @@ void updatePostTouch(){
         if(now-crashStart>=CRASH_DURA){
             setState(STATE_COOLDOWN);
         }
-    }else if(isAnnoyed==1 && now-annoyStart>=ANNOYED_DURA){
-        isAnnoyed=0;
+    }else if(currentState==STATE_ANNOYED && now-annoyStart>=ANNOYED_DURA){
         setState(STATE_COOLDOWN);
     }
 }
@@ -457,9 +501,10 @@ void updatePostTouch(){
 void updateForgive(){
     if(petCount == 0)return;
     bool isPaused =(currentState==STATE_COOLDOWN|| 
-             currentState==STATE_CRASH || 
-             currentState==STATE_PETTING || 
-             currentState==STATE_POSTPET|| isAnnoyed );
+                    currentState==STATE_CRASH || 
+                    currentState==STATE_PETTING || 
+                    currentState==STATE_POSTPET|| 
+                    currentState==STATE_ANNOYED);
 
     if(isPaused){
         if(forgiveRunning){
@@ -482,6 +527,7 @@ void updateForgive(){
 
 
 void updateCrash(){
+    if(currentState != STATE_CRASH) return;
     unsigned long elapsed = now - crashStart;
 
     //0.0 → 1.0
@@ -500,15 +546,15 @@ void updateCrash(){
     // 25% → 100%
     else{
         // 25% → 100% into 0 → 1
-        float shrinkProgress = (progress - 0.25) / 0.75;
+        float shrink = (progress - 0.25) / 0.75;
 
-        targetEyeH = EYE_H - shrinkProgress * (EYE_H - 14);
+        targetEyeH = EYE_H - shrink * (EYE_H - 14);
 
-        if (shrinkProgress > 0.5)
+        if (shrink > 0.5)
             mouth_shape = 2;
         else
             mouth_shape = 0;
-        targetMouthSize = 14.0 - shrinkProgress * 6.0;
+        targetMouthSize = 14.0;
     }if (elapsed >= CRASH_DURA)
         setState(STATE_COOLDOWN);
 }
@@ -535,18 +581,25 @@ void loop()
     updateBlink();
     updateSquint();
     updatePostTouch();
+    updateCooldown();
+    updateForgive();
+    updateCrash();  
 
-    if (singleTouch){
-        SingleTapAction();
-        singleTouch = 0;
+    if(singleTouch){
+    if(currentState==STATE_COOLDOWN || currentState==STATE_ANNOYED)
+        setState(STATE_ANNOYED);
+    else { SingleTapAction(); }
+    singleTouch = 0;
     }
-
+    
     if (doubleTouch){ 
         doubleTapAction(); 
         doubleTouch = 0; }
 
-    if (isLongTouch && currentState!=STATE_PETTING){
-        LongPressAction();
+    if(isLongTouch && currentState!=STATE_PETTING){
+        if(currentState==STATE_COOLDOWN || currentState==STATE_ANNOYED)
+            setState(STATE_ANNOYED);
+        else LongPressAction();
     }
 //----------------Tweening----------------
     currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
