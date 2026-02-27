@@ -74,10 +74,9 @@ unsigned long cooldownStart=0;
 bool forgiveRunning=0;
 unsigned long forgiveLastTick = 0;
 unsigned long annoyStart = 0;
-unsigned long crashStart = 0;
 bool isAnnoyed = false;
 unsigned long annoyStart = 0;
-
+unsigned long crashStart = 0;
 
 void onTouchStart();
 void onLongRelease();
@@ -375,28 +374,21 @@ void drawEyes()
 void drawMouth()
 {
 
-    if (mouth_shape == 1)
-    { // joy mode
-
+    if (mouth_shape == 1){ // w mouth
         int cx = 64;
         int cy = MOUTH_Y + 4;
 
-        display.drawLine(cx - 10, cy,
-                         cx - 5, cy + 5,
-                         SSD1306_WHITE);
+        display.drawLine(cx - 10, cy, cx - 5, cy + 5, SSD1306_WHITE);
 
-        display.drawLine(cx - 5, cy + 5,
-                         cx, cy + 2,
-                         SSD1306_WHITE);
+        display.drawLine(cx - 5, cy + 5, cx, cy + 2, SSD1306_WHITE);
 
-        display.drawLine(cx, cy + 2,
-                         cx + 5, cy + 5,
-                         SSD1306_WHITE);
+        display.drawLine(cx, cy + 2, cx + 5, cy + 5, SSD1306_WHITE);
 
-        display.drawLine(cx + 5, cy + 5,
-                         cx + 10, cy,
-                         SSD1306_WHITE);
+        display.drawLine(cx + 5, cy + 5, cx + 10, cy, SSD1306_WHITE);
         return;
+    }
+    else if(mouth_shape ==2){ //frown mouth
+        
     }
 
     int s = (int)currentMouthSize;
@@ -463,9 +455,63 @@ void updatePostTouch(){
 }
 
 void updateForgive(){
-    
+    if(petCount == 0)return;
+    bool isPaused =(currentState==STATE_COOLDOWN|| 
+             currentState==STATE_CRASH || 
+             currentState==STATE_PETTING || 
+             currentState==STATE_POSTPET|| isAnnoyed );
+
+    if(isPaused){
+        if(forgiveRunning){
+            forgiveElapsed += now - forgiveLastTick;
+            forgiveRunning=0;
+        }
+    }else{
+        if(!forgiveRunning){
+        forgiveRunning = true;
+        forgiveLastTick = now;
+        }
+        if(forgiveElapsed + (now - forgiveLastTick)>=FORGIVE_DURA){
+            petCount=0;
+            forgiveElapsed=0;
+            forgiveRunning=0;
+            
+        }
+    }
 }
 
+
+void updateCrash(){
+    unsigned long elapsed = now - crashStart;
+
+    //0.0 → 1.0
+    float progress = (float)elapsed / CRASH_DURA;
+
+    // 1.0 max
+    if (progress > 1.0)
+        progress = 1.0;
+
+    // 0 → 25%
+    if (progress <= 0.25){
+        targetEyeH = EYE_H;   
+        targetMouthSize = 14.0; 
+        mouth_shape = 0;        
+    }
+    // 25% → 100%
+    else{
+        // 25% → 100% into 0 → 1
+        float shrinkProgress = (progress - 0.25) / 0.75;
+
+        targetEyeH = EYE_H - shrinkProgress * (EYE_H - 14);
+
+        if (shrinkProgress > 0.5)
+            mouth_shape = 2;
+        else
+            mouth_shape = 0;
+        targetMouthSize = 14.0 - shrinkProgress * 6.0;
+    }if (elapsed >= CRASH_DURA)
+        setState(STATE_COOLDOWN);
+}
 
 
 
