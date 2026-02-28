@@ -278,6 +278,30 @@ void drawPostPettingEyes()
     }
 }
 
+void drawWavyLineMouth(){
+    int cx = 64;
+    int cy = MOUTH_Y + 4;
+    for(int x = cx - 17; x <= cx + 17; x++){
+        float wave = sin((x - cx) * 0.55) * 3;
+        int y = cy + (int)wave;
+        display.drawPixel(x, y,   SSD1306_WHITE);
+        display.drawPixel(x, y+1, SSD1306_WHITE);
+    }
+}
+
+void drawSpiralEye(int cx, int cy, int direction, float rotationOffset){
+    float angle = 0;
+    float radius = 0;
+    while(radius < 13){
+        float ea = (angle + rotationOffset) * direction;
+        int x = cx + (int)(cos(ea) * radius);
+        int y = cy + (int)(sin(ea) * radius);
+        display.drawPixel(x,   y, SSD1306_WHITE);
+        display.drawPixel(x+1, y, SSD1306_WHITE);
+        angle  += 0.4;
+        radius += 0.25;
+    }
+}
 
 void SingleTapAction(){
     setState(STATE_SQUINTING);
@@ -358,21 +382,11 @@ void drawEyes()
         }
 
         case STATE_EXCITED:{
-                // Wider and taller
-                int excitedW = BASE_EYE_W + 8;   // 38px
-                int excitedH = (int)currentEyeH; 
-                if(excitedH > EYE_H + 6) excitedH = EYE_H + 6;
-
-                //sine jitter
-                float jitter = sin(now * 0.008) * 1.5;
-                int j = (int)jitter;
-
-                int ly = EYE_Y + (EYE_H - excitedH) / 2;
-
-                //  grow from center not left edge
-                display.fillRoundRect(EYE_X_L - 4 + j, ly, excitedW, excitedH, EYE_RADIUS, SSD1306_WHITE);
-                display.fillRoundRect(EYE_X_R - 4 + j, ly, excitedW, excitedH, EYE_RADIUS, SSD1306_WHITE);
-                return;
+            float rot = (float)(now / 75) * 0.18;
+            int cy = EYE_Y + EYE_H / 2;
+            drawSpiralEye(leftCX,  cy,  1, rot);
+            drawSpiralEye(rightCX,  cy, -1, rot);
+            return;
         }
         
 
@@ -400,6 +414,11 @@ void drawMouth(){
         display.drawLine(cx, cy + 2, cx + 5, cy + 5, SSD1306_WHITE);
         display.drawLine(cx + 5, cy + 5, cx + 10, cy, SSD1306_WHITE);
         return;
+    }
+
+    if(currentState == STATE_EXCITED){
+    drawWavyLineMouth();
+    return;
     }
 
     int s = (int)currentMouthSize;
@@ -470,7 +489,8 @@ void updatePetReset(){
 
 void updatePetting(){
     if(currentState != STATE_PETTING) return;
-    targetEyeH = 6 + sin(now * 0.01) * 3;
+    currentEyeH = 6 + sin(now * 0.003) * 2;
+    targetEyeH=currentEyeH;
 }
 
 void drawCalmBar(){
@@ -478,7 +498,7 @@ void drawCalmBar(){
     float progress = (float)(now - excitedStart) / EXCITED_CALM_TIME;
     if(progress > 1.0) progress = 1.0;
     int barH = (int)(progress * 60);
-    display.fillRect(125, 62 - barH, 3, barH, SSD1306_WHITE);
+    display.fillRect(125, 62 - barH, 1, barH, SSD1306_WHITE);
 }
 
 void setup()
