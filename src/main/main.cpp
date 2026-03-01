@@ -1,11 +1,18 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <time.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLR 0x3C
+
+#define WIFI_SSID    "esp32test"
+#define WIFI_PASS    "anandnair12"
+#define GMT_OFFSET   19800
+#define DAYLIGHT_OFF 0
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -15,8 +22,13 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define LONG_PRESS_TIME 600  // Time to hold before triggering Long Press
 #define PET_THRESHOLD 2000
 
+enum Mode{ 
+    MODE_PET, 
+    MODE_CLOCK 
+};
+Mode currentMode = MODE_PET;
 
-enum FaceState {
+enum FaceState{
     STATE_NORMAL,
     STATE_SQUINTING,
     STATE_PETTING,
@@ -38,6 +50,10 @@ FaceState currentState = STATE_NORMAL;
 #define SQUINT_DURA 1250
 #define EXCITED_CALM_TIME 8000
 #define PET_RESET_TIME    15000
+
+#define NTP_RETRY_INTERVAL 30000
+bool ntpSynced = false;
+unsigned long lastNtpAttempt = 0;
 
 unsigned long now;
 
@@ -64,6 +80,19 @@ int petCount = 0;
 unsigned long excitedStart = 0;
 unsigned long lastPetTime = 0;
 
+float eyeOffsetX = 0;    
+float targetOffsetX = 0; 
+float eyeOffsetY = 0;
+float targetOffsetY = 0;
+
+float mouthOffsetX = 0;
+float targetMouthOffsetX = 0;
+unsigned long mouthDelayStart = 0;  
+bool mouthFollowing = false;         
+
+unsigned long nextLookTime = 0;  // when next glance
+bool centerPauseActive = false;
+
 void onTouchStart();
 void onLongRelease();
 
@@ -72,10 +101,10 @@ void onLongRelease();
 
 //-----------------------Tweening------------------------
 float moveTowards(float current, float target, float speed){
-    if (abs(current - target) <= speed)
+    if(abs(current - target) <= speed)
         return target;
 
-    if (current < target)
+    if(current < target)
         return current + speed;
     else
         return current - speed;
@@ -106,9 +135,9 @@ void setState(FaceState State){
             postTouchStart = now;
             mouth_shape = 1;
             
-            if (petCount <= 1)
+            if(petCount <= 1)
                 targetMouthSize = 9.0;
-            else if (petCount == 2)
+            else if(petCount == 2)
                 targetMouthSize = 7.0;
             else
                 targetMouthSize = 5.0;
@@ -139,7 +168,7 @@ void touchInput(){
     bool touch = touchRead(TOUCH_PIN) < 60;
 
     // Rise
-    if (touch && !isTouching){
+    if(touch && !isTouching){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
@@ -148,20 +177,18 @@ void touchInput(){
     }
 
     // Hold
-    if (touch && isTouching)
-    {
-        if (!isLongTouch && (now - touchStartTime > LONG_PRESS_TIME))
-        {
+    if(touch && isTouching){
+        if(!isLongTouch && (now - touchStartTime > LONG_PRESS_TIME)){
             isLongTouch = 1;
             touchCount = 0;
         }
     }
 
     // Fall
-    if (!touch && isTouching){
+    if(!touch && isTouching){
         isTouching = 0;
 
-        if (isLongTouch){ 
+        if(isLongTouch){ 
             onLongRelease();
         }
         else{
@@ -171,13 +198,11 @@ void touchInput(){
     }
 
     // Timeout Check
-    if (!touch && !isLongTouch && touchCount > 0)
-    {
-        if (now - lastTapTime > DOUBLE_TAP_DELAY)
-        {
-            if (touchCount == 1)
+    if(!touch && !isLongTouch && touchCount > 0){
+        if(now - lastTapTime > DOUBLE_TAP_DELAY){
+            if(touchCount == 1)
                 singleTouch = 1;
-            else if (touchCount >= 2)
+            else if(touchCount >= 2)
                 doubleTouch = 1;
             touchCount = 0;
         }
@@ -195,7 +220,7 @@ void onTouchStart(){
         return;              
     }
 
-    if (currentState == STATE_POSTPET){
+    if(currentState == STATE_POSTPET){
         setState(STATE_SQUINTING);
         squintStartTime = now;
         currentSquintStyle = SQUINT_CRESCENT;
@@ -252,8 +277,7 @@ void drawPostPettingEyes()
     int leftCX  = EYE_X_L + BASE_EYE_W / 2;
     int rightCX = EYE_X_R + BASE_EYE_W / 2;
 
-    for (int y = 0; y <= radiusY; y++)
-    {
+    for (int y = 0; y <= radiusY; y++){
         float ratio = (float)y / radiusY;
 
         // Ellipse equation
@@ -306,26 +330,27 @@ void SingleTapAction(){
     setState(STATE_SQUINTING);
     squintStartTime = now;
     // Randomly choose eye style
-    if (random(0, 2) == 0)
+    if(random(0, 2) == 0)
         currentSquintStyle = SQUINT_FLAT;
     else
         currentSquintStyle = SQUINT_CRESCENT;
 
     // 40% chance of bigger lower smile
-    if (random(0, 100) < 40)
-    {
+    if(random(0, 100) < 40){
         targetMouthSize = 13; // Wider smile
     }
-    else
-    {
+    else{
         targetMouthSize = 9; // Normal smile
     }
 }
 
-
 void doubleTapAction(){
-    //mode change
+    if(currentMode == MODE_PET)
+        currentMode = MODE_CLOCK;
+    else
+        currentMode = MODE_PET;
 }
+
 void LongPressAction()
 {
     setState(STATE_PETTING);
@@ -333,8 +358,8 @@ void LongPressAction()
 }
 
 void updateSquint(){
-    if (currentState == STATE_SQUINTING){
-        if (now- squintStartTime > SQUINT_DURA){
+    if(currentState == STATE_SQUINTING){
+        if(now- squintStartTime > SQUINT_DURA){
             setState(STATE_NORMAL);
         }
     }
@@ -353,8 +378,8 @@ void drawEyes()
     
      switch(currentState){
         case STATE_POSTPET:{
-            if (mouth_shape == 1) drawPostPettingEyes();
-            else { drawCrescentEye(leftCX); drawCrescentEye(rightCX); }
+            if(mouth_shape == 1) drawPostPettingEyes();
+            else{ drawCrescentEye(leftCX); drawCrescentEye(rightCX); }
             return;
         }
 
@@ -365,7 +390,7 @@ void drawEyes()
         }
 
         case STATE_SQUINTING:{
-            if (currentSquintStyle == SQUINT_CRESCENT){
+            if(currentSquintStyle == SQUINT_CRESCENT){
                 drawCrescentEye(leftCX);
                 drawCrescentEye(rightCX);
                 return;
@@ -391,7 +416,7 @@ void drawEyes()
 
         default:{
             int h      = (int)currentEyeH;
-            if (h < 2) h = 2;
+            if(h < 2) h = 2;
             int radius = (h <= 4) ? 2 : EYE_RADIUS;
             int ly     = EYE_Y + (EYE_H - h) / 2;
             display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
@@ -404,7 +429,7 @@ void drawEyes()
 
 void drawMouth(){
 
-    if (mouth_shape == 1){ // w mouth
+    if(mouth_shape == 1){ // w mouth
         int cx = 64;
         int cy = MOUTH_Y + 4;
 
@@ -421,16 +446,15 @@ void drawMouth(){
     }
 
     int s = (int)currentMouthSize;
-    if (s < 1)
+    if(s < 1)
         return;
 
     display.fillCircle(64, MOUTH_Y + 5, s, SSD1306_WHITE);
     display.fillCircle(64, MOUTH_Y + 1, s, SSD1306_BLACK);
 }
 
-void updateBlink()
-{
-    if (currentState != STATE_NORMAL)
+void updateBlink(){
+    if(currentState != STATE_NORMAL)
         return;
 
     static long interval = 3500;
@@ -438,15 +462,13 @@ void updateBlink()
     static int isBlinking = 0;
     static unsigned long Blinkstart_time = 0;
 
-    if (!isBlinking && now - lastBlink_time > interval)
-    {
+    if(!isBlinking && now - lastBlink_time > interval){
         isBlinking = 1;
         Blinkstart_time = now;
         targetEyeH = 4;
     }
 
-    if (isBlinking && now - Blinkstart_time > duration)
-    {
+    if(isBlinking && now - Blinkstart_time > duration){
         isBlinking = 0;
         lastBlink_time = now;
         targetEyeH = EYE_H;
@@ -463,7 +485,7 @@ void updateBlink()
 void updatePostTouch(){
     if(currentState != STATE_POSTPET) return;
     unsigned long postDur = (petCount == 1)?2000:(petCount == 2)?1000:500;
-    if (now - postTouchStart >= postDur){
+    if(now - postTouchStart >= postDur){
     setState(STATE_NORMAL);
         mouth_shape = 0;
     }
@@ -500,29 +522,98 @@ void drawCalmBar(){
     display.fillRect(125, 62 - barH, 1, barH, SSD1306_WHITE);
 }
 
-void setup()
-{
+
+//-------------------lookaround------------------
+//    0-34  (35%) → center
+//   35-54 (20%) → left only
+//   55-74 (20%) → right only
+//   75-84 (10%) → left + up
+//   85-94 (10%) → right + up
+//   95-99  (5%) → straight up
+
+void lookAround(){
+    int roll = random(0, 100);
+
+    if(roll < 35){
+        targetOffsetX = 0;
+        targetOffsetY = 0; 
+        centerPauseActive = true;
+        nextLookTime = now + random(300, 600);
+
+    }else if(roll < 55){
+            targetOffsetX = random(-5,-1);
+            targetOffsetY = 0;
+            mouthFollowing = true;
+            mouthDelayStart = now;
+    }else if(roll < 75){
+            targetOffsetX = random(2,6);
+            targetOffsetY = 0;
+            mouthFollowing = true;
+            mouthDelayStart = now;
+
+    }else if(roll < 85){
+            targetOffsetX = random(-5,1);
+            targetOffsetY = random(-2, 0);
+            mouthFollowing = true;
+            mouthDelayStart = now;
+
+    }else if(roll < 95){
+            targetOffsetX = random(2,6);
+            targetOffsetY = random(-2, 0);
+            mouthFollowing = true;
+            mouthDelayStart = now;
+
+    }else{
+        targetOffsetX = 0;
+        targetOffsetY = random(-2, -1);
+       
+    }
+}
+
+
+
+void setup(){
     Serial.begin(115200);
     Wire.begin(21, 22);
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    if (!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
+    if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
         for (;;)
             ;
     }
+
+    
 }
 
-void loop()
-{
+
+void loop(){
     now = millis();
 
     touchInput();
-    updateBlink();
-    updateSquint();
-    updatePostTouch();  
-    updateExcited();   
-    updatePetReset();
-    updatePetting();
+
+    if(currentMode == MODE_PET){
+        updateBlink();
+        updateSquint();
+        updatePostTouch();
+        updateExcited();
+        updatePetReset();
+        updatePetting();
+    }else{
+            //----------------time---------------------
+            if(WiFi.status() == WL_CONNECTED && !ntpSynced){
+                if(lastNtpAttempt == 0 || now - lastNtpAttempt >= NTP_RETRY_INTERVAL){
+                    lastNtpAttempt = now;
+                    configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
+                    struct tm timeinfo;
+                    if(getLocalTime(&timeinfo)){
+                        ntpSynced = true;
+                    }
+                }
+            }
+        }
 
     if(singleTouch){
         if(currentState != STATE_EXCITED)
@@ -530,23 +621,28 @@ void loop()
         singleTouch = 0;
     }
     
-    if (doubleTouch){ 
-        if(currentState != STATE_EXCITED)
+    if(doubleTouch){ 
             doubleTapAction(); 
-        doubleTouch = 0; }
+            doubleTouch = 0; 
+        }
 
     if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
         LongPressAction();
     }
-    
-//----------------Tweening----------------
+    //----------------Tweening----------------
     currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
     currentMouthSize = moveTowards(currentMouthSize, targetMouthSize, 1.5);
 
     display.clearDisplay();
-    drawEyes();
-    drawMouth();
-    drawCalmBar();
+
+    if(currentMode == MODE_CLOCK){
+        //drawClockFace();   
+        //drawTinyFace();    
+    } else{
+        drawEyes();
+        drawMouth();
+        drawCalmBar();
+    }
     display.display();
 
     delay(20);
