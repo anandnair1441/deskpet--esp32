@@ -7,7 +7,6 @@
 #define SCREEN_HEIGHT 64
 #define OLR 0x3C
 
-
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 //-----------------------Input State Machine-----------------------
@@ -24,7 +23,7 @@ enum FaceState {
     STATE_POSTPET,
     STATE_EXCITED
 };
-FaceState currentState =STATE_NORMAL;
+FaceState currentState = STATE_NORMAL;
 
 
 //-----------------------Face geometry-----------------------
@@ -48,7 +47,7 @@ bool isTouching = 0;
 int touchCount = 0;
 int singleTouch = 0;
 int doubleTouch = 0;
-int isLongTouch = 0;
+bool isLongTouch = 0;
 unsigned long postTouchStart = 0;
 
 unsigned long lastInteractionTime = 0;
@@ -61,7 +60,7 @@ float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
 int mouth_shape = 0;
 
-int petCount=0;
+int petCount = 0;
 unsigned long excitedStart = 0;
 unsigned long lastPetTime = 0;
 
@@ -72,41 +71,41 @@ void onLongRelease();
 //-----------------------ANIMATION-----------------------
 
 //-----------------------Tweening------------------------
-float moveTowards(float current, float target, float speed)
-{
+float moveTowards(float current, float target, float speed){
     if (abs(current - target) <= speed)
         return target;
 
     if (current < target)
         return current + speed;
-    if (current > target)
+    else
         return current - speed;
-    return target;
+return target;
 }
 
 
 void setState(FaceState State){
-    currentState=State;
+    currentState = State;
     switch (State){
         case STATE_NORMAL:
-            targetEyeH=EYE_H;
-            targetMouthSize=9.0;
-            mouth_shape=0;
-            lastBlink_time=now;
+            targetEyeH = EYE_H;
+            targetMouthSize = 9.0;
+            mouth_shape = 0;
+            lastBlink_time = now;
             break;
 
         case STATE_SQUINTING:
-            targetEyeH=12.0;
+            targetEyeH = 12.0;
             break;
         
         case STATE_PETTING:
-            targetEyeH=6.0;
-            targetMouthSize=0;
+            targetEyeH = 6.0;
+            targetMouthSize = 0;
             break;
         
         case STATE_POSTPET:
-            postTouchStart=now;
-            mouth_shape=1;
+            postTouchStart = now;
+            mouth_shape = 1;
+            
             if (petCount <= 1)
                 targetMouthSize = 9.0;
             else if (petCount == 2)
@@ -116,7 +115,7 @@ void setState(FaceState State){
             break;
 
         case STATE_EXCITED:
-            excitedStart=now;
+            excitedStart = now;
             targetEyeH = EYE_H + 6;  
             targetMouthSize = 13.0;
             mouth_shape = 0;
@@ -144,7 +143,7 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
-        if(currentState != STATE_EXCITED)
+        if(currentState != STATE_EXCITED && currentState != STATE_POSTPET)
             targetEyeH = EYE_H; 
     }
 
@@ -196,9 +195,9 @@ void onTouchStart(){
         return;              
     }
 
-    if (currentState==STATE_POSTPET){
+    if (currentState == STATE_POSTPET){
         setState(STATE_SQUINTING);
-        squintStartTime=now;
+        squintStartTime = now;
         currentSquintStyle = SQUINT_CRESCENT;
     }else{
        
@@ -217,8 +216,8 @@ void onLongRelease(){
 
     if(fullPet){
         petCount++;
-        lastPetTime=now;
-        if(petCount>=5)
+        lastPetTime = now;
+        if(petCount >= 5)
             setState(STATE_EXCITED);
         else 
             setState(STATE_POSTPET);
@@ -280,9 +279,9 @@ void drawPostPettingEyes()
 
 void drawWavyLineMouth(){
     int cx = 64;
-    int cy = MOUTH_Y + 4;
+    int cy = MOUTH_Y + 12;
     for(int x = cx - 17; x <= cx + 17; x++){
-        float wave = sin((x - cx) * 0.55) * 3;
+        float wave = sin((x - cx) * 0.8) * 3;
         int y = cy + (int)wave;
         display.drawPixel(x, y,   SSD1306_WHITE);
         display.drawPixel(x, y+1, SSD1306_WHITE);
@@ -292,20 +291,20 @@ void drawWavyLineMouth(){
 void drawSpiralEye(int cx, int cy, int direction, float rotationOffset){
     float angle = 0;
     float radius = 0;
-    while(radius < 13){
+    while(radius <20){
         float ea = (angle + rotationOffset) * direction;
         int x = cx + (int)(cos(ea) * radius);
         int y = cy + (int)(sin(ea) * radius);
         display.drawPixel(x,   y, SSD1306_WHITE);
         display.drawPixel(x+1, y, SSD1306_WHITE);
-        angle  += 0.4;
-        radius += 0.25;
+        angle  += 0.3;
+        radius += 0.22;
     }
 }
 
 void SingleTapAction(){
     setState(STATE_SQUINTING);
-    squintStartTime=now;
+    squintStartTime = now;
     // Randomly choose eye style
     if (random(0, 2) == 0)
         currentSquintStyle = SQUINT_FLAT;
@@ -334,7 +333,7 @@ void LongPressAction()
 }
 
 void updateSquint(){
-    if (currentState==STATE_SQUINTING){
+    if (currentState == STATE_SQUINTING){
         if (now- squintStartTime > SQUINT_DURA){
             setState(STATE_NORMAL);
         }
@@ -431,7 +430,7 @@ void drawMouth(){
 
 void updateBlink()
 {
-    if (currentState !=STATE_NORMAL)
+    if (currentState != STATE_NORMAL)
         return;
 
     static long interval = 3500;
@@ -462,8 +461,8 @@ void updateBlink()
 //  release     → finger lifted after long press
 
 void updatePostTouch(){
-    if(currentState!=STATE_POSTPET) return;
-    unsigned long postDur = (petCount==1)?2000:(petCount==2)?1000:500;
+    if(currentState != STATE_POSTPET) return;
+    unsigned long postDur = (petCount == 1)?2000:(petCount == 2)?1000:500;
     if (now - postTouchStart >= postDur){
     setState(STATE_NORMAL);
         mouth_shape = 0;
@@ -471,7 +470,7 @@ void updatePostTouch(){
 }
 
 void updateExcited(){
-    if(currentState!=STATE_EXCITED)return;
+    if(currentState != STATE_EXCITED)return;
 
     if(now - excitedStart >= EXCITED_CALM_TIME){
         petCount = 0;
@@ -490,7 +489,7 @@ void updatePetReset(){
 void updatePetting(){
     if(currentState != STATE_PETTING) return;
     currentEyeH = 6 + sin(now * 0.003) * 2;
-    targetEyeH=currentEyeH;
+    targetEyeH = currentEyeH;
 }
 
 void drawCalmBar(){
@@ -515,7 +514,7 @@ void setup()
 
 void loop()
 {
-    now=millis();
+    now = millis();
 
     touchInput();
     updateBlink();
@@ -536,7 +535,7 @@ void loop()
             doubleTapAction(); 
         doubleTouch = 0; }
 
-    if(isLongTouch && currentState!=STATE_PETTING && currentState!=STATE_EXCITED){
+    if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
         LongPressAction();
     }
     
