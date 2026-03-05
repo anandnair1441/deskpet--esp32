@@ -40,12 +40,12 @@ FaceState currentState = STATE_NORMAL;
 
 //-----------------------Face geometry-----------------------
 #define BASE_EYE_W 30
-#define EYE_H 44
+#define EYE_H 35
 #define EYE_Y 5
 #define EYE_X_L 16
 #define EYE_X_R 82
 #define EYE_RADIUS 8
-#define MOUTH_Y 42
+#define MOUTH_Y 44
 
 #define SQUINT_DURA 1250
 #define EXCITED_CALM_TIME 8000
@@ -59,19 +59,29 @@ unsigned long now;
 
 unsigned long touchStartTime = 0;
 unsigned long lastTapTime = 0;
-bool isTouching = 0;
+bool isTouching = false;
 int touchCount = 0;
-int singleTouch = 0;
-int doubleTouch = 0;
-bool isLongTouch = 0;
+bool singleTouch = false;
+bool doubleTouch = false;
+bool isLongTouch = false;
 unsigned long postTouchStart = 0;
 
 unsigned long lastInteractionTime = 0;
 unsigned long lastBlink_time = 0;
 unsigned long squintStartTime = 0;
 
-float currentEyeH = EYE_H;
-float targetEyeH = EYE_H;
+struct EyeState {
+    float h = EYE_H;
+    float targetH = EYE_H;
+    float w = BASE_EYE_W;
+    float targetW = BASE_EYE_W;
+    float OffsetX = 0;    
+    float targetOffsetX = 0; 
+    float OffsetY = 0;
+    float targetOffsetY = 0;
+};
+EyeState leftEye, rightEye; 
+
 float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
 int mouth_shape = 0;
@@ -79,22 +89,22 @@ int mouth_shape = 0;
 int petCount = 0;
 unsigned long excitedStart = 0;
 unsigned long lastPetTime = 0;
-
-float eyeOffsetX = 0;    
-float targetOffsetX = 0; 
-float eyeOffsetY = 0;
-float targetOffsetY = 0;
+unsigned long excitedEndTime = 0;
 
 float mouthOffsetX = 0;
 float targetMouthOffsetX = 0;
 unsigned long mouthDelayStart = 0;  
 bool mouthFollowing = false;         
 
-unsigned long nextLookTime = 0;  // when next glance
+unsigned long nextLookTime = 0;
 bool centerPauseActive = false;
+int lastLookDir = 0;
 
 void onTouchStart();
 void onLongRelease();
+void lookAround();
+void setEyeTargetH(float h);
+void setEyeTargetW(float w);
 
 
 //-----------------------ANIMATION-----------------------
@@ -112,28 +122,36 @@ return target;
 }
 
 
+float smoothMove(float current, float target){
+    if(abs(target - current) < 1.5f)
+        return target;
+    return (current + target) / 2.0f;
+}
+
+
 void setState(FaceState State){
     currentState = State;
     switch (State){
         case STATE_NORMAL:
-            targetEyeH = EYE_H;
+            setEyeTargetH(EYE_H);
             targetMouthSize = 9.0;
             mouth_shape = 0;
             lastBlink_time = now;
             break;
 
         case STATE_SQUINTING:
-            targetEyeH = 12.0;
+           setEyeTargetH(12.0);
             break;
         
         case STATE_PETTING:
-            targetEyeH = 6.0;
+            setEyeTargetH(6.0);
             targetMouthSize = 0;
             break;
         
         case STATE_POSTPET:
             postTouchStart = now;
             mouth_shape = 1;
+            setEyeTargetH(EYE_H + 5);
             
             if(petCount <= 1)
                 targetMouthSize = 9.0;
@@ -145,13 +163,26 @@ void setState(FaceState State){
 
         case STATE_EXCITED:
             excitedStart = now;
-            targetEyeH = EYE_H + 6;  
-            targetMouthSize = 13.0;
             mouth_shape = 0;
             break;
     }
 }
 
+
+void setEyeTargetH(float h){
+    leftEye.targetH = h;
+    rightEye.targetH = h;
+}
+
+void setEyeTargetW(float w){
+    leftEye.targetW = w;
+    rightEye.targetW = w;
+}
+
+void setEyeOffsets(float ox, float oy){
+    leftEye.targetOffsetX  = ox; rightEye.targetOffsetX = ox;
+    leftEye.targetOffsetY  = oy; rightEye.targetOffsetY = oy;
+}
 
 //------------------Squint Styles------------------
 enum SquintStyle
@@ -173,7 +204,7 @@ void touchInput(){
         touchStartTime = now;
         onTouchStart();
         if(currentState != STATE_EXCITED && currentState != STATE_POSTPET)
-            targetEyeH = EYE_H; 
+            setEyeTargetH(EYE_H); 
     }
 
     // Hold
@@ -214,6 +245,11 @@ void onTouchStart(){
     lastInteractionTime = now;
     singleTouch = 0;
     doubleTouch = 0;
+    setEyeOffsets(0,0);
+    
+    targetMouthOffsetX = 0;
+    mouthFollowing = false;
+    centerPauseActive = false;
 
     if(currentState == STATE_EXCITED){
         excitedStart = now;   
@@ -224,9 +260,13 @@ void onTouchStart(){
         setState(STATE_SQUINTING);
         squintStartTime = now;
         currentSquintStyle = SQUINT_CRESCENT;
-    }else{
-       
     }
+
+    if(excitedEndTime != 0){
+    excitedEndTime = 0;
+    targetMouthSize = 9.0;
+    }
+
     mouth_shape = 0;
     targetMouthSize = 9.0;
 }
@@ -251,31 +291,42 @@ void onLongRelease(){
     }
 }
 
-void drawCrescentEye(int centerX){
+
+void tweenEye(EyeState &eye){
+    eye.h       = moveTowards(eye.h,       eye.targetH,      5.0f);
+    eye.w       = moveTowards(eye.w,       eye.targetW,      2.0f);
+    eye.OffsetX = smoothMove(eye.OffsetX,  eye.targetOffsetX);
+    eye.OffsetY = smoothMove(eye.OffsetY,  eye.targetOffsetY);
+}
+
+
+void drawCrescentEye(int centerX, float eyeH){
     int centerY = EYE_Y + EYE_H / 2;
+    float t = eyeH / (float)EYE_H;
+    int radius    = 10 + (int)(t * 4);
+    int thickness = 2  + (int)(t * 5);
 
-    float t = currentEyeH / EYE_H;    // gives 0.0 to 1.0
-    int radius = 10 + (int)(t * 4);   // scales 6 to 14 Controls ,curve size
-    int thickness = 3 + (int)(t * 5); // scales 3 to 8 ,Controls crescent thickness
+    // draw white circle twice — slightly offset vertically to thicken the arc
+    display.fillCircle(centerX, centerY - 1, radius, SSD1306_WHITE);
+    display.fillCircle(centerX, centerY,     radius, SSD1306_WHITE);
 
-    // Draw full white circle
-    display.fillCircle(centerX, centerY, radius, SSD1306_WHITE);
+    // black cover — bottom half
+    display.fillRect(centerX - radius - 1, centerY, 
+                     (radius + 1) * 2, radius + 2, SSD1306_BLACK);
 
-    // Cover bottom part with black rectangle
-    display.fillRect(centerX - radius, centerY, radius * 2, radius, SSD1306_BLACK);
-
-    // thin bottom trim for smoother look
-    display.fillCircle(centerX, centerY + thickness, radius, SSD1306_BLACK);
+    // black inner trim — draw twice to soften inner edge
+    display.fillCircle(centerX, centerY + thickness,     radius - 1, SSD1306_BLACK);
+    display.fillCircle(centerX, centerY + thickness + 1, radius - 1, SSD1306_BLACK);
 }
 
 void drawPostPettingEyes()
 {
     // ----- Adjustable parameters -----
-    int radiusX = 10;    // smaller = less width
-    int radiusY = 20;   // larger = more height
+    int radiusX = 10;    // less width
+    int radiusY = (EYE_H/2)+2;   //  more height
     int centery     = EYE_Y + (EYE_H /2);
-    int leftCX  = EYE_X_L + BASE_EYE_W / 2;
-    int rightCX = EYE_X_R + BASE_EYE_W / 2;
+    int leftCX = EYE_X_L + BASE_EYE_W / 2;
+    int rightCX= EYE_X_R + BASE_EYE_W / 2;
 
     for (int y = 0; y <= radiusY; y++){
         float ratio = (float)y / radiusY;
@@ -285,7 +336,7 @@ void drawPostPettingEyes()
 
         // Left eye
         display.drawFastHLine(
-            leftCX - xSpan,
+            leftCX- xSpan,
             centery - y,
             xSpan * 2,
             SSD1306_WHITE
@@ -293,7 +344,7 @@ void drawPostPettingEyes()
 
         // Right eye
         display.drawFastHLine(
-            rightCX - xSpan,
+            rightCX- xSpan,
             centery - y,
             xSpan * 2,
             SSD1306_WHITE
@@ -303,7 +354,7 @@ void drawPostPettingEyes()
 
 void drawWavyLineMouth(){
     int cx = 64;
-    int cy = MOUTH_Y + 12;
+    int cy = MOUTH_Y + 5;
     for(int x = cx - 17; x <= cx + 17; x++){
         float wave = sin((x - cx) * 0.8) * 3;
         int y = cy + (int)wave;
@@ -315,7 +366,7 @@ void drawWavyLineMouth(){
 void drawSpiralEye(int cx, int cy, int direction, float rotationOffset){
     float angle = 0;
     float radius = 0;
-    while(radius <20){
+    while(radius <15){
         float ea = (angle + rotationOffset) * direction;
         int x = cx + (int)(cos(ea) * radius);
         int y = cy + (int)(sin(ea) * radius);
@@ -373,31 +424,36 @@ void updateSquint(){
 
 void drawEyes()
 {
-    int leftCX  = EYE_X_L + BASE_EYE_W / 2;
+    int leftCX = EYE_X_L + BASE_EYE_W / 2;
     int rightCX = EYE_X_R + BASE_EYE_W / 2;
     
      switch(currentState){
         case STATE_POSTPET:{
-            if(mouth_shape == 1) drawPostPettingEyes();
-            else{ drawCrescentEye(leftCX); drawCrescentEye(rightCX); }
+            if(petCount <= 1){
+                drawCrescentEye(leftCX,leftEye.h);
+                drawCrescentEye(rightCX,rightEye.h);
+            }
+            else{
+                drawPostPettingEyes();
+                }
             return;
         }
 
         case STATE_PETTING:{
-            drawCrescentEye(leftCX);
-            drawCrescentEye(rightCX);
+            drawCrescentEye(leftCX,leftEye.h);
+            drawCrescentEye(rightCX,rightEye.h);
             return;
         }
 
         case STATE_SQUINTING:{
             if(currentSquintStyle == SQUINT_CRESCENT){
-                drawCrescentEye(leftCX);
-                drawCrescentEye(rightCX);
+                drawCrescentEye(leftCX,leftEye.h);
+                drawCrescentEye(rightCX,rightEye.h);
                 return;
             }
             // flat squint falls through to default with small h
             {
-                int h  = (int)currentEyeH;
+                int h  = (int)rightEye.h;
                 int ly = EYE_Y + (EYE_H - h) / 2;
                 display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
                 display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
@@ -406,21 +462,24 @@ void drawEyes()
         }
 
         case STATE_EXCITED:{
-            float rot = (float)(now / 75) * 0.18;
+            float rot = (float)(now / 75.0f) * 0.18f;
             int cy = EYE_Y + EYE_H / 2;
-            drawSpiralEye(leftCX,  cy,  1, rot);
+            drawSpiralEye(leftCX, cy,  1, rot);
             drawSpiralEye(rightCX,  cy, -1, rot);
             return;
         }
         
 
         default:{
-            int h      = (int)currentEyeH;
+            int h      = (int)rightEye.h;
             if(h < 2) h = 2;
             int radius = (h <= 4) ? 2 : EYE_RADIUS;
             int ly     = EYE_Y + (EYE_H - h) / 2;
-            display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
-            display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, radius, SSD1306_WHITE);
+
+            display.fillRoundRect(EYE_X_L + (int)leftEye.OffsetX, ly + (int)leftEye.OffsetY, 
+            BASE_EYE_W, h, radius, SSD1306_WHITE);
+            display.fillRoundRect(EYE_X_R + (int)rightEye.OffsetX, ly + (int)rightEye.OffsetY, 
+            BASE_EYE_W, h, radius, SSD1306_WHITE);
             return;
         }
    }
@@ -449,8 +508,10 @@ void drawMouth(){
     if(s < 1)
         return;
 
-    display.fillCircle(64, MOUTH_Y + 5, s, SSD1306_WHITE);
-    display.fillCircle(64, MOUTH_Y + 1, s, SSD1306_BLACK);
+    int mx = 64 + (int)mouthOffsetX;
+
+    display.fillCircle(mx, MOUTH_Y + 5, s, SSD1306_WHITE);
+    display.fillCircle(mx, MOUTH_Y + 1, s, SSD1306_BLACK);
 }
 
 void updateBlink(){
@@ -461,19 +522,26 @@ void updateBlink(){
     static long duration = 150;
     static int isBlinking = 0;
     static unsigned long Blinkstart_time = 0;
-
     if(!isBlinking && now - lastBlink_time > interval){
         isBlinking = 1;
         Blinkstart_time = now;
-        targetEyeH = 4;
+        leftEye.h = 2;      rightEye.h = 2;
+        setEyeTargetH(2);
     }
 
     if(isBlinking && now - Blinkstart_time > duration){
         isBlinking = 0;
-        lastBlink_time = now;
-        targetEyeH = EYE_H;
+        lastBlink_time = now; 
+        setEyeTargetH(EYE_H);
 
-        interval = random(3500, 7000);
+        if(!centerPauseActive)
+            lookAround();
+
+        if(random(0,100) < 10){
+        interval = random(200,400);
+        }else{
+            interval = random(3500,7000);
+        }
         duration = random(100, 200);
     }
 }
@@ -484,7 +552,7 @@ void updateBlink(){
 
 void updatePostTouch(){
     if(currentState != STATE_POSTPET) return;
-    unsigned long postDur = (petCount == 1)?2000:(petCount == 2)?1000:500;
+    unsigned long postDur = (petCount == 1)?1200:(petCount == 2)?1000:500;
     if(now - postTouchStart >= postDur){
     setState(STATE_NORMAL);
         mouth_shape = 0;
@@ -492,11 +560,19 @@ void updatePostTouch(){
 }
 
 void updateExcited(){
-    if(currentState != STATE_EXCITED)return;
-
-    if(now - excitedStart >= EXCITED_CALM_TIME){
-        petCount = 0;
-        setState(STATE_NORMAL);
+    if(currentState == STATE_EXCITED){
+        if(now - excitedStart >= EXCITED_CALM_TIME){
+            petCount = 0;
+            excitedEndTime = now;
+            setState(STATE_NORMAL);
+            targetMouthSize = 0; 
+        }
+        return;
+    }
+    if(excitedEndTime == 0) return;
+    if(now - excitedEndTime >= 5000){
+        targetMouthSize = 9.0;
+        excitedEndTime = 0;
     }
 }
 
@@ -508,10 +584,12 @@ void updatePetReset(){
     }
 }
 
+//postpet eye changing height
 void updatePetting(){
     if(currentState != STATE_PETTING) return;
-    currentEyeH = 6 + sin(now * 0.003) * 2;
-    targetEyeH = currentEyeH;
+    float ch = 6 + sin(now * 0.003) * 2;
+    leftEye.h = ch; rightEye.h = ch;
+    setEyeTargetH(ch);
 }
 
 void drawCalmBar(){
@@ -532,44 +610,81 @@ void drawCalmBar(){
 //   95-99  (5%) → straight up
 
 void lookAround(){
+    if(now - lastInteractionTime < 2000) return;
     int roll = random(0, 100);
+    mouthFollowing = false;
+    centerPauseActive = true;
 
-    if(roll < 35){
-        targetOffsetX = 0;
-        targetOffsetY = 0; 
-        centerPauseActive = true;
+    int Dir = 0;
+    float X = 0, Y = 0;
+
+    if(roll < 35){   //center
+        Dir = 0; X = 0; Y = 0;
         nextLookTime = now + random(300, 600);
-
-    }else if(roll < 55){
-            targetOffsetX = random(-5,-1);
-            targetOffsetY = 0;
-            mouthFollowing = true;
-            mouthDelayStart = now;
-    }else if(roll < 75){
-            targetOffsetX = random(2,6);
-            targetOffsetY = 0;
-            mouthFollowing = true;
-            mouthDelayStart = now;
-
-    }else if(roll < 85){
-            targetOffsetX = random(-5,1);
-            targetOffsetY = random(-2, 0);
-            mouthFollowing = true;
-            mouthDelayStart = now;
-
-    }else if(roll < 95){
-            targetOffsetX = random(2,6);
-            targetOffsetY = random(-2, 0);
-            mouthFollowing = true;
-            mouthDelayStart = now;
-
-    }else{
-        targetOffsetX = 0;
-        targetOffsetY = random(-2, -1);
-       
+    
+    }else if(roll < 55){   //left
+        Dir = -1;
+        X = random(-10, -4); Y = 0;
+        mouthFollowing = true;
+        nextLookTime = now + random(600, 1200);
+    
+    }else if(roll < 75){   //right
+        Dir = 1;
+        X = random(4, 10); Y = 0;
+        mouthFollowing = true;
+        nextLookTime = now + random(600, 1200);
+    
+    }else if(roll < 85){  //leftup
+        Dir = -1;
+        X = random(-10, -4); Y = random(-2, 0);
+        mouthFollowing = true;
+        nextLookTime = now + random(600, 1200);
+    
+    }else if(roll < 95){    //rightup
+        Dir = 1;
+        X = random(4, 10); Y = random(-2, 0);
+        mouthFollowing = true;
+        nextLookTime = now + random(600, 1200);
+    
+    }else {   //centerup
+        Dir = 0; X = 0; Y = random(-4, -1);
+        nextLookTime = now + random(300, 600);
     }
+    // same direction
+    if(Dir == lastLookDir && Dir != 0){
+        centerPauseActive = false;
+        leftEye.h  = max(2.0f, leftEye.h  - 6.0f);
+        rightEye.h = max(2.0f, rightEye.h - 6.0f);
+    } else {
+        setEyeOffsets(X, Y);
+        // saccade snap
+        if(Dir != 0){
+            leftEye.OffsetX  = X * 0.6f;
+            rightEye.OffsetX = X * 0.6f;
+        }
+        leftEye.h  = max(2.0f, leftEye.h  - 6.0f);
+        rightEye.h = max(2.0f, rightEye.h - 6.0f);
+    }
+
+    lastLookDir = Dir;
+
+    if(mouthFollowing)
+        mouthDelayStart = now;
 }
 
+void updateLook(){
+    if(currentState != STATE_NORMAL) return;
+
+    if(mouthFollowing && now - mouthDelayStart >= 100){
+        targetMouthOffsetX = rightEye.targetOffsetX;
+        mouthFollowing = false;
+    }
+    if(rightEye.targetOffsetX == 0 && abs(rightEye.OffsetX) < 1.5f)
+        targetMouthOffsetX = 0;
+
+    if(centerPauseActive && now >= nextLookTime)
+        centerPauseActive = false;
+}
 
 
 void setup(){
@@ -581,8 +696,7 @@ void setup(){
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
-        for (;;)
-            ;
+        for (;;);
     }
 
     
@@ -601,6 +715,7 @@ void loop(){
         updateExcited();
         updatePetReset();
         updatePetting();
+        updateLook();
     }else{
             //----------------time---------------------
             if(WiFi.status() == WL_CONNECTED && !ntpSynced){
@@ -624,14 +739,18 @@ void loop(){
     if(doubleTouch){ 
             doubleTapAction(); 
             doubleTouch = 0; 
-        }
+    }
 
     if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
         LongPressAction();
     }
+
     //----------------Tweening----------------
-    currentEyeH = moveTowards(currentEyeH, targetEyeH, 4.5);
     currentMouthSize = moveTowards(currentMouthSize, targetMouthSize, 1.5);
+    tweenEye(leftEye);
+    tweenEye(rightEye);
+
+    mouthOffsetX = smoothMove(mouthOffsetX, targetMouthOffsetX);
 
     display.clearDisplay();
 
