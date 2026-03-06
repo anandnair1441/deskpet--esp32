@@ -100,6 +100,9 @@ unsigned long nextLookTime = 0;
 bool centerPauseActive = false;
 int lastLookDir = 0;
 
+int idlePhase = 0;
+// 0=none, 1=yawn1, 2=yawn2, 3=yawn3, 4=sleeping
+
 void onTouchStart();
 void onLongRelease();
 void lookAround();
@@ -250,6 +253,7 @@ void onTouchStart(){
     targetMouthOffsetX = 0;
     mouthFollowing = false;
     centerPauseActive = false;
+    int idlePhase = 0;
 
     if(currentState == STATE_EXCITED){
         excitedStart = now;   
@@ -518,10 +522,13 @@ void updateBlink(){
     if(currentState != STATE_NORMAL)
         return;
 
+    if(now - lastInteractionTime < 2000) return;
+
     static long interval = 3500;
     static long duration = 150;
     static int isBlinking = 0;
     static unsigned long Blinkstart_time = 0;
+
     if(!isBlinking && now - lastBlink_time > interval){
         isBlinking = 1;
         Blinkstart_time = now;
@@ -555,7 +562,6 @@ void updatePostTouch(){
     unsigned long postDur = (petCount == 1)?1200:(petCount == 2)?1000:500;
     if(now - postTouchStart >= postDur){
     setState(STATE_NORMAL);
-        mouth_shape = 0;
     }
 }
 
@@ -589,7 +595,6 @@ void updatePetting(){
     if(currentState != STATE_PETTING) return;
     float ch = 6 + sin(now * 0.003) * 2;
     leftEye.h = ch; rightEye.h = ch;
-    setEyeTargetH(ch);
 }
 
 void drawCalmBar(){
@@ -686,6 +691,72 @@ void updateLook(){
         centerPauseActive = false;
 }
 
+void drawclock(){
+    struct tm timeinfo;
+
+     if(!getLocalTime(&timeinfo)){
+        display.setTextSize(3);
+        display.setCursor(10, 20);
+        display.print("--:--");
+        return;
+    }
+    char timeBuf[6];
+    strftime(timeBuf, sizeof(timeBuf), "%I:%M", &timeinfo);
+
+    char dateBuf[16];
+    strftime(dateBuf, sizeof(dateBuf), "%a, %d %b", &timeinfo);
+
+    char ampmBuf[4];
+    strftime(ampmBuf, sizeof(ampmBuf), "%p", &timeinfo);
+
+    char secBuf[3];
+    strftime(secBuf, sizeof(secBuf), "%S", &timeinfo);
+
+    display.setTextSize(1);
+    display.setCursor(31, 4);
+    display.print(dateBuf);
+
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(timeBuf);
+
+    display.setTextSize(1);
+    display.setCursor(105, 20);
+    display.print(ampmBuf);
+
+    display.setTextSize(1);
+    display.setCursor(105, 35);
+    display.print(secBuf);
+}
+
+void updateIdle(){
+    if(currentState != STATE_NORMAL) return;
+    
+    unsigned long elapsed = now - lastInteractionTime;
+
+    if(elapsed < 30000){ 
+        idlePhase = 0; 
+        return; 
+    }
+
+    if(idlePhase == 0 && elapsed >= 30000){
+        idlePhase = 1;
+        //triggerYawn();
+    }
+    if(idlePhase == 1 && elapsed >= 45000){
+        idlePhase = 2;
+        //triggerYawn();
+    }
+    if(idlePhase == 2 && elapsed >= 60000){
+        idlePhase = 3;
+       // triggerYawn();
+        // start drooping
+    }
+    if(idlePhase == 3 && elapsed >= 75000){
+        idlePhase = 4;
+        // enter sleep
+    }
+}
 
 void setup(){
     Serial.begin(115200);
@@ -693,6 +764,8 @@ void setup(){
     
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+    display.setTextColor(SSD1306_WHITE);
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
@@ -757,7 +830,7 @@ void loop(){
     display.clearDisplay();
 
     if(currentMode == MODE_CLOCK){
-        //drawClockFace();   
+        drawclock();   
         //drawTinyFace();    
     } else{
         drawEyes();
