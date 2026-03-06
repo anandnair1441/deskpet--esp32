@@ -610,7 +610,7 @@ void drawCalmBar(){
 //   95-99  (5%) → straight up
 
 void lookAround(){
-    if(now - lastInteractionTime < 2000) return;
+    if(now - lastInteractionTime < 5000) return;
     int roll = random(0, 100);
     mouthFollowing = false;
     centerPauseActive = true;
@@ -716,35 +716,37 @@ void loop(){
         updatePetReset();
         updatePetting();
         updateLook();
-    }else{
-            //----------------time---------------------
-            if(WiFi.status() == WL_CONNECTED && !ntpSynced){
-                if(lastNtpAttempt == 0 || now - lastNtpAttempt >= NTP_RETRY_INTERVAL){
-                    lastNtpAttempt = now;
-                    configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
-                    struct tm timeinfo;
-                    if(getLocalTime(&timeinfo)){
-                        ntpSynced = true;
-                    }
-                }
+    }
+        //----------------time---------------------
+    if(WiFi.status() == WL_CONNECTED && !ntpSynced){
+        if(lastNtpAttempt == 0 || now - lastNtpAttempt >= NTP_RETRY_INTERVAL){
+            lastNtpAttempt = now;
+            configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
+            struct tm timeinfo;
+            if(getLocalTime(&timeinfo)){
+                ntpSynced = true;
             }
         }
+    }
 
-    if(singleTouch){
-        if(currentState != STATE_EXCITED)
-            SingleTapAction(); 
+    if(currentMode == MODE_PET){
+        if(singleTouch){
+            if(currentState != STATE_EXCITED)
+                SingleTapAction(); 
+            singleTouch = 0;
+        }
+        if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
+            LongPressAction();
+        }
+    }else{
         singleTouch = 0;
     }
     
     if(doubleTouch){ 
             doubleTapAction(); 
             doubleTouch = 0; 
+    
     }
-
-    if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
-        LongPressAction();
-    }
-
     //----------------Tweening----------------
     currentMouthSize = moveTowards(currentMouthSize, targetMouthSize, 1.5);
     tweenEye(leftEye);
