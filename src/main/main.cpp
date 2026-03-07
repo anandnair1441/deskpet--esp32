@@ -51,6 +51,8 @@ FaceState currentState = STATE_NORMAL;
 #define EXCITED_CALM_TIME 8000
 #define PET_RESET_TIME    15000
 
+#define YAWN_SPEED 0.04f
+
 #define NTP_RETRY_INTERVAL 30000
 bool ntpSynced = false;
 unsigned long lastNtpAttempt = 0;
@@ -85,7 +87,6 @@ EyeState leftEye, rightEye;
 enum MouthShape {
     MOUTH_NORMAL,
     MOUTH_WMOUTH,
-    MOUTH_YAWN
 };
 MouthShape mouth_shape = MOUTH_NORMAL;
 
@@ -108,12 +109,17 @@ int lastLookDir = 0;
 
 int idlePhase = 0;
 // 0=none, 1=yawn1, 2=yawn2, 3=yawn3, 4=sleeping
+float currentYawnFactor = 0.0f;
+float targetYawnFactor  = 0.0f;
+unsigned long yawnEndTime = 0;
+bool isYawnEye = false;
 
 void onTouchStart();
 void onLongRelease();
 void lookAround();
 void setEyeTargetH(float h);
 void setEyeTargetW(float w);
+void triggerYawn();
 
 
 //-----------------------ANIMATION-----------------------
@@ -255,11 +261,14 @@ void onTouchStart(){
     singleTouch = 0;
     doubleTouch = 0;
     setEyeOffsets(0,0);
+    currentYawnFactor = 0.0f;
+    targetYawnFactor  = 0.0f;
+    yawnEndTime = 0;
     
     targetMouthOffsetX = 0;
     mouthFollowing = false;
     centerPauseActive = false;
-    int idlePhase = 0;
+    idlePhase = 0;
 
     if(currentState == STATE_EXCITED){
         excitedStart = now;   
@@ -303,26 +312,29 @@ void onLongRelease(){
 
 
 void tweenEye(EyeState &eye){
-    eye.h       = moveTowards(eye.h,       eye.targetH,      5.0f);
-    eye.w       = moveTowards(eye.w,       eye.targetW,      2.0f);
+    float prevH = eye.h;
+    eye.h       = smoothMove(eye.h,       eye.targetH);
+    eye.w       = smoothMove(eye.w,       eye.targetW);
     eye.OffsetX = smoothMove(eye.OffsetX,  eye.targetOffsetX);
     eye.OffsetY = smoothMove(eye.OffsetY,  eye.targetOffsetY);
+    if(eye.targetH <= 4.0f)
+        eye.OffsetY += (prevH - eye.h) / 2.0f;
 }
 
 
 void drawCrescentEye(int centerX, float eyeH){
     int centerY = EYE_Y + EYE_H / 2;
     float t = eyeH / (float)EYE_H;
-    int radius    = 10 + (int)(t * 4);
-    int thickness = 2  + (int)(t * 5);
+    int radius    = 10 + (int)(t * 4);               // smaller white for yawn
+    int thickness = 2  + (int)(t * 5);               // lower black circle
+
 
     // draw white circle twice — slightly offset vertically to thicken the arc
     display.fillCircle(centerX, centerY - 1, radius, SSD1306_WHITE);
     display.fillCircle(centerX, centerY,     radius, SSD1306_WHITE);
 
     // black cover — bottom half
-    display.fillRect(centerX - radius - 1, centerY, 
-                     (radius + 1) * 2, radius + 2, SSD1306_BLACK);
+    display.fillRect(centerX - radius - 1, centerY, (radius + 1) * 2, radius + 2, SSD1306_BLACK);
 
     // black inner trim — draw twice to soften inner edge
     display.fillCircle(centerX, centerY + thickness,     radius - 1, SSD1306_BLACK);
@@ -391,7 +403,7 @@ void SingleTapAction(){
     setState(STATE_SQUINTING);
     squintStartTime = now;
     // Randomly choose eye style
-    if(random(0, 2) == 0)
+    if(random(0, 2) == 1)
         currentSquintStyle = SQUINT_FLAT;
     else
         currentSquintStyle = SQUINT_CRESCENT;
@@ -419,11 +431,11 @@ void LongPressAction()
 }
 
 void updateSquint(){
-    if(currentState == STATE_SQUINTING){
-        if(now- squintStartTime > SQUINT_DURA){
-            setState(STATE_NORMAL);
-        }
-    }
+    if(currentState != STATE_SQUINTING) return;
+
+    if(now- squintStartTime > SQUINT_DURA){
+        setState(STATE_NORMAL);
+    } 
 }
 
 // petting animation after and if its long enough a happy content face at the end
@@ -481,7 +493,13 @@ void drawEyes()
         
 
         default:{
-            int h      = (int)rightEye.h;
+            if(currentYawnFactor > 0.01f){
+                int yawnH = map((int)(currentYawnFactor * 100), 0, 100, EYE_H, 8);
+                drawCrescentEye(leftCX,  yawnH);
+                drawCrescentEye(rightCX, yawnH);
+                return;
+            }
+            int h = (int)rightEye.h;
             if(h < 2) h = 2;
             int radius = (h <= 4) ? 2 : EYE_RADIUS;
             int ly     = EYE_Y + (EYE_H - h) / 2;
@@ -496,7 +514,7 @@ void drawEyes()
 }
 
 
-void drawMouth(){
+void drawMouth(){ 
 
     if(mouth_shape == MOUTH_WMOUTH){ // w mouth
         int cx = 64;
@@ -518,22 +536,25 @@ void drawMouth(){
     if(s < 1)
         return;
 
+    if(currentYawnFactor > 0.05f){
+        int r = (int)(currentYawnFactor * 16);
+        if(r > 1){
+            int centerY = MOUTH_Y + 14 - r;
+            display.fillCircle(64, centerY, r, SSD1306_WHITE);
+        }
+        return;
+    }
+
     int mx = 64 + (int)mouthOffsetX;
 
     display.fillCircle(mx, MOUTH_Y + 5, s, SSD1306_WHITE);
     display.fillCircle(mx, MOUTH_Y + 1, s, SSD1306_BLACK);
-
-    if(mouth_shape == MOUTH_YAWN){
-    int cx = 64;
-    int s = (int)currentMouthSize;
-    display.fillCircle(cx, MOUTH_Y + 5, s, SSD1306_WHITE);
-    return;
-    }
 }
 
 void updateBlink(){
-    if(currentState != STATE_NORMAL)
-        return;
+    if(currentState != STATE_NORMAL) return;
+    
+    if(currentYawnFactor > 0.05f) return;
 
     if(now - lastInteractionTime < 2000) return;
 
@@ -554,12 +575,10 @@ void updateBlink(){
         lastBlink_time = now; 
         setEyeTargetH(EYE_H);
 
-        if(!centerPauseActive)
-            lookAround();
-
         if(random(0,100) < 10){
-        interval = random(200,400);
-        }else{
+            interval = random(200,400);
+        }
+        else{
             interval = random(3500,7000);
         }
         duration = random(100, 200);
@@ -629,6 +648,7 @@ void drawCalmBar(){
 
 void lookAround(){
     if(now - lastInteractionTime < 5000) return;
+    if(abs(leftEye.OffsetX - leftEye.targetOffsetX) > 2.0f) return;
     int roll = random(0, 100);
     mouthFollowing = false;
     centerPauseActive = true;
@@ -638,7 +658,7 @@ void lookAround(){
 
     if(roll < 35){   //center
         Dir = 0; X = 0; Y = 0;
-        nextLookTime = now + random(300, 600);
+        nextLookTime = now + random(1500, 3000);
     
     }else if(roll < 55){   //left
         Dir = -1;
@@ -656,13 +676,13 @@ void lookAround(){
         Dir = -1;
         X = random(-10, -4); Y = random(-2, 0);
         mouthFollowing = true;
-        nextLookTime = now + random(600, 1200);
+        nextLookTime = now + random(2000, 4000);
     
     }else if(roll < 95){    //rightup
         Dir = 1;
         X = random(4, 10); Y = random(-2, 0);
         mouthFollowing = true;
-        nextLookTime = now + random(600, 1200);
+        nextLookTime = now + random(2000, 4000);
     
     }else {   //centerup
         Dir = 0; X = 0; Y = random(-4, -1);
@@ -691,6 +711,12 @@ void lookAround(){
 }
 
 void updateLook(){
+    if(currentYawnFactor > 0.05f) return;
+
+    if(now >= nextLookTime && currentState == STATE_NORMAL && now - lastInteractionTime > 5000){
+        lookAround();
+        return;
+    }
     if(currentState != STATE_NORMAL) return;
 
     if(mouthFollowing && now - mouthDelayStart >= 100){
@@ -704,7 +730,7 @@ void updateLook(){
         centerPauseActive = false;
 }
 
-void drawclock(){
+void drawClock(){
     struct tm timeinfo;
 
      if(!getLocalTime(&timeinfo)){
@@ -747,28 +773,35 @@ void updateIdle(){
     
     unsigned long elapsed = now - lastInteractionTime;
 
-    if(elapsed < 30000){ 
+    if(elapsed < 3000){ 
         idlePhase = 0; 
         return; 
     }
-
     if(idlePhase == 0 && elapsed >= 30000){
         idlePhase = 1;
-        //triggerYawn();
+        triggerYawn();
     }
-    if(idlePhase == 1 && elapsed >= 45000){
+    else if(idlePhase == 1 && elapsed >= 45000){
         idlePhase = 2;
-        //triggerYawn();
+        triggerYawn();
     }
-    if(idlePhase == 2 && elapsed >= 60000){
+    else if(idlePhase == 2 && elapsed >= 60000){
         idlePhase = 3;
-       // triggerYawn();
+        triggerYawn();
         // start drooping
     }
-    if(idlePhase == 3 && elapsed >= 75000){
+    else if(idlePhase == 3 && elapsed >= 75000){
         idlePhase = 4;
         // enter sleep
     }
+}
+
+void triggerYawn(){
+    if(currentState != STATE_NORMAL) return;
+    if(currentYawnFactor >0.1f) return;
+
+    targetYawnFactor =1.0f;
+    yawnEndTime=now + 3000;
 }
 
 void setup(){
@@ -802,6 +835,7 @@ void loop(){
         updatePetReset();
         updatePetting();
         updateLook();
+        updateIdle();
     }
         //----------------time---------------------
     if(WiFi.status() == WL_CONNECTED && !ntpSynced){
@@ -840,10 +874,16 @@ void loop(){
 
     mouthOffsetX = smoothMove(mouthOffsetX, targetMouthOffsetX);
 
+    if(yawnEndTime != 0 && now >= yawnEndTime){
+        targetYawnFactor = 0.0f;
+        yawnEndTime = 0;
+    }
+    currentYawnFactor = moveTowards(currentYawnFactor, targetYawnFactor, YAWN_SPEED);
+
     display.clearDisplay();
 
     if(currentMode == MODE_CLOCK){
-        drawclock();   
+        drawClock();   
         //drawTinyFace();    
     } else{
         drawEyes();
