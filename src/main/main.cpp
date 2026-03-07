@@ -264,7 +264,7 @@ void onTouchStart(){
     currentYawnFactor = 0.0f;
     targetYawnFactor  = 0.0f;
     yawnEndTime = 0;
-    
+    isYawnEye = false;
     targetMouthOffsetX = 0;
     mouthFollowing = false;
     centerPauseActive = false;
@@ -323,11 +323,20 @@ void tweenEye(EyeState &eye){
 
 
 void drawCrescentEye(int centerX, float eyeH){
-    int centerY = EYE_Y + EYE_H / 2;
-    float t = eyeH / (float)EYE_H;
-    int radius    = 10 + (int)(t * 4);               // smaller white for yawn
-    int thickness = 2  + (int)(t * 5);               // lower black circle
+    int centerY, radius, thickness, blackR;
 
+    if(isYawnEye){
+        centerY   = 30;       // EYE_Y + EYE_H/2 + 5
+        radius    = 21;       // large = flatter arc
+        thickness = 3;
+        blackR    = 23;       // radius + 2
+    } else {
+        centerY   = EYE_Y + EYE_H / 2;
+        float t   = eyeH / (float)EYE_H;
+        radius    = 10 + (int)(t * 4);
+        thickness = 3  + (int)(t * 5);
+        blackR    = radius - 1;
+    }
 
     // draw white circle twice — slightly offset vertically to thicken the arc
     display.fillCircle(centerX, centerY - 1, radius, SSD1306_WHITE);
@@ -337,8 +346,8 @@ void drawCrescentEye(int centerX, float eyeH){
     display.fillRect(centerX - radius - 1, centerY, (radius + 1) * 2, radius + 2, SSD1306_BLACK);
 
     // black inner trim — draw twice to soften inner edge
-    display.fillCircle(centerX, centerY + thickness,     radius - 1, SSD1306_BLACK);
-    display.fillCircle(centerX, centerY + thickness + 1, radius - 1, SSD1306_BLACK);
+    display.fillCircle(centerX, centerY + thickness,     blackR, SSD1306_BLACK);
+    display.fillCircle(centerX, centerY + thickness + 1, blackR, SSD1306_BLACK);
 }
 
 void drawPostPettingEyes()
@@ -494,9 +503,8 @@ void drawEyes()
 
         default:{
             if(currentYawnFactor > 0.01f){
-                int yawnH = map((int)(currentYawnFactor * 100), 0, 100, EYE_H, 8);
-                drawCrescentEye(leftCX,  yawnH);
-                drawCrescentEye(rightCX, yawnH);
+                drawCrescentEye(leftCX,  0);
+                drawCrescentEye(rightCX, 0);
                 return;
             }
             int h = (int)rightEye.h;
@@ -799,10 +807,20 @@ void updateIdle(){
 void triggerYawn(){
     if(currentState != STATE_NORMAL) return;
     if(currentYawnFactor >0.1f) return;
-
+    isYawnEye = true;
     targetYawnFactor =1.0f;
     yawnEndTime=now + 3000;
 }
+
+
+
+
+
+
+
+
+
+
 
 void setup(){
     Serial.begin(115200);
@@ -874,10 +892,16 @@ void loop(){
 
     mouthOffsetX = smoothMove(mouthOffsetX, targetMouthOffsetX);
 
+    //-------------yawning--------------------
+
     if(yawnEndTime != 0 && now >= yawnEndTime){
         targetYawnFactor = 0.0f;
         yawnEndTime = 0;
+        targetMouthSize=0;
     }
+    if(currentYawnFactor <= 0.0f && yawnEndTime ==0)
+        isYawnEye = false;
+
     currentYawnFactor = moveTowards(currentYawnFactor, targetYawnFactor, YAWN_SPEED);
 
     display.clearDisplay();
