@@ -9,7 +9,7 @@
 #define SCREEN_HEIGHT 64
 #define OLR 0x3C
 
-#define WIFI_SSID    "esp32test"
+#define WIFI_SSID    "Anandarnair"
 #define WIFI_PASS    "anandnair12"
 #define GMT_OFFSET   19800
 #define DAYLIGHT_OFF 0
@@ -82,9 +82,15 @@ struct EyeState {
 };
 EyeState leftEye, rightEye; 
 
+enum MouthShape {
+    MOUTH_NORMAL,
+    MOUTH_WMOUTH,
+    MOUTH_YAWN
+};
+MouthShape mouth_shape = MOUTH_NORMAL;
+
 float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
-int mouth_shape = 0;
 
 int petCount = 0;
 unsigned long excitedStart = 0;
@@ -138,7 +144,7 @@ void setState(FaceState State){
         case STATE_NORMAL:
             setEyeTargetH(EYE_H);
             targetMouthSize = 9.0;
-            mouth_shape = 0;
+            mouth_shape = MOUTH_NORMAL;
             lastBlink_time = now;
             break;
 
@@ -153,7 +159,7 @@ void setState(FaceState State){
         
         case STATE_POSTPET:
             postTouchStart = now;
-            mouth_shape = 1;
+            mouth_shape = MOUTH_WMOUTH;
             setEyeTargetH(EYE_H + 5);
             
             if(petCount <= 1)
@@ -166,7 +172,7 @@ void setState(FaceState State){
 
         case STATE_EXCITED:
             excitedStart = now;
-            mouth_shape = 0;
+            mouth_shape = MOUTH_NORMAL;
             break;
     }
 }
@@ -271,7 +277,7 @@ void onTouchStart(){
     targetMouthSize = 9.0;
     }
 
-    mouth_shape = 0;
+    mouth_shape = MOUTH_NORMAL;
     targetMouthSize = 9.0;
 }
 
@@ -492,7 +498,7 @@ void drawEyes()
 
 void drawMouth(){
 
-    if(mouth_shape == 1){ // w mouth
+    if(mouth_shape == MOUTH_WMOUTH){ // w mouth
         int cx = 64;
         int cy = MOUTH_Y + 4;
 
@@ -516,6 +522,13 @@ void drawMouth(){
 
     display.fillCircle(mx, MOUTH_Y + 5, s, SSD1306_WHITE);
     display.fillCircle(mx, MOUTH_Y + 1, s, SSD1306_BLACK);
+
+    if(mouth_shape == MOUTH_YAWN){
+    int cx = 64;
+    int s = (int)currentMouthSize;
+    display.fillCircle(cx, MOUTH_Y + 5, s, SSD1306_WHITE);
+    return;
+    }
 }
 
 void updateBlink(){
