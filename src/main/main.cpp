@@ -113,6 +113,7 @@ float currentYawnFactor = 0.0f;
 float targetYawnFactor  = 0.0f;
 unsigned long yawnEndTime = 0;
 bool isYawnEye = false;
+unsigned long yawnMouthBlankUntil = 0;
 
 void onTouchStart();
 void onLongRelease();
@@ -269,6 +270,9 @@ void onTouchStart(){
     mouthFollowing = false;
     centerPauseActive = false;
     idlePhase = 0;
+    yawnMouthBlankUntil = 0;
+    currentMouthSize = 9.0;
+    targetMouthSize = 9.0;
 
     if(currentState == STATE_EXCITED){
         excitedStart = now;   
@@ -332,7 +336,7 @@ void drawCrescentEye(int centerX, float eyeH){
         blackR    = 23;       // radius + 2
     } else {
         centerY   = EYE_Y + EYE_H / 2;
-        float t   = eyeH / (float)EYE_H;
+        float t   = min (eyeH, float(eyeH) / (float)EYE_H);
         radius    = 10 + (int)(t * 4);
         thickness = 3  + (int)(t * 5);
         blackR    = radius - 1;
@@ -551,6 +555,14 @@ void drawMouth(){
             display.fillCircle(64, centerY, r, SSD1306_WHITE);
         }
         return;
+    }
+    if(yawnMouthBlankUntil != 0){
+    if(now < yawnMouthBlankUntil)
+        return;  // draw nothing
+        // blank period just ended — restore mouth
+        yawnMouthBlankUntil = 0;
+        targetMouthSize = 9.0;
+        currentMouthSize = 9.0;  // snap, no tween gap
     }
 
     int mx = 64 + (int)mouthOffsetX;
@@ -897,7 +909,7 @@ void loop(){
     if(yawnEndTime != 0 && now >= yawnEndTime){
         targetYawnFactor = 0.0f;
         yawnEndTime = 0;
-        targetMouthSize=0;
+        yawnMouthBlankUntil = now + 3000;
     }
     if(currentYawnFactor <= 0.0f && yawnEndTime ==0)
         isYawnEye = false;
