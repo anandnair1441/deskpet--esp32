@@ -33,7 +33,7 @@ enum FaceState{
     STATE_SQUINTING,
     STATE_PETTING,
     STATE_POSTPET,
-    STATE_EXCITED
+    STATE_DIZZY
 };
 FaceState currentState = STATE_NORMAL;
 
@@ -48,12 +48,16 @@ FaceState currentState = STATE_NORMAL;
 #define MOUTH_Y 44
 
 #define SQUINT_DURA 1250
-#define EXCITED_CALM_TIME 8000
+#define DIZZY_CALM_TIME 8000
 #define PET_RESET_TIME    15000
 
 #define YAWN_SPEED 0.04f
 
+#define RAPID_TAP_WINDOW 3000
+#define RAPID_TAP_THRESHOLD 5
+
 #define NTP_RETRY_INTERVAL 30000
+
 bool ntpSynced = false;
 unsigned long lastNtpAttempt = 0;
 
@@ -67,6 +71,8 @@ bool singleTouch = false;
 bool doubleTouch = false;
 bool isLongTouch = false;
 unsigned long postTouchStart = 0;
+int rapidTapCount = 0;
+unsigned long rapidTapWindowStart = 0;
 
 unsigned long lastInteractionTime = 0;
 unsigned long lastBlink_time = 0;
@@ -94,9 +100,10 @@ float currentMouthSize = 9.0;
 float targetMouthSize = 9.0;
 
 int petCount = 0;
-unsigned long excitedStart = 0;
+unsigned long dizzyStart = 0;
 unsigned long lastPetTime = 0;
-unsigned long excitedEndTime = 0;
+unsigned long dizzyEndTime = 0;
+bool dizzyFromPetting = false;
 
 float mouthOffsetX = 0;
 float targetMouthOffsetX = 0;
@@ -114,9 +121,13 @@ float targetYawnFactor  = 0.0f;
 unsigned long yawnEndTime = 0;
 bool isYawnEye = false;
 unsigned long yawnMouthBlankUntil = 0;
+float tiredeyes = 0.0f;
+float targetTiredEyes = 0.0f;
+bool isSleeping = false;
 
 void onTouchStart();
 void onLongRelease();
+void updateDizzy();
 void lookAround();
 void setEyeTargetH(float h);
 void setEyeTargetW(float w);
@@ -177,8 +188,8 @@ void setState(FaceState State){
                 targetMouthSize = 5.0;
             break;
 
-        case STATE_EXCITED:
-            excitedStart = now;
+        case STATE_DIZZY:
+            dizzyStart = now;
             mouth_shape = MOUTH_NORMAL;
             break;
     }
@@ -219,7 +230,7 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
-        if(currentState != STATE_EXCITED && currentState != STATE_POSTPET)
+        if(currentState != STATE_DIZZY && currentState != STATE_POSTPET)
             setEyeTargetH(EYE_H); 
     }
 
@@ -273,9 +284,24 @@ void onTouchStart(){
     yawnMouthBlankUntil = 0;
     currentMouthSize = 9.0;
     targetMouthSize = 9.0;
+    tiredeyes = 0.0f;
+    targetTiredEyes = 0.0f;
+    isSleeping = false;
 
-    if(currentState == STATE_EXCITED){
-        excitedStart = now;   
+    if(now - rapidTapWindowStart > RAPID_TAP_WINDOW){
+        rapidTapCount = 0;
+        rapidTapWindowStart = now;
+    }
+    rapidTapCount++;
+    if(rapidTapCount >= RAPID_TAP_THRESHOLD){
+        rapidTapCount = 0;
+        dizzyFromPetting = false;
+        setState(STATE_DIZZY);
+        return;
+}
+
+    if(currentState == STATE_DIZZY){
+        dizzyStart = now;   
         return;              
     }
 
@@ -285,8 +311,8 @@ void onTouchStart(){
         currentSquintStyle = SQUINT_CRESCENT;
     }
 
-    if(excitedEndTime != 0){
-    excitedEndTime = 0;
+    if(dizzyEndTime != 0){
+    dizzyEndTime = 0;
     targetMouthSize = 9.0;
     }
 
@@ -296,8 +322,8 @@ void onTouchStart(){
 
 void onLongRelease(){
     isLongTouch = 0;
-    if(currentState == STATE_EXCITED){ 
-        excitedStart = now;            
+    if(currentState == STATE_DIZZY){ 
+        dizzyStart = now;            
         return;
     }
     bool fullPet = (now - touchStartTime) > PET_THRESHOLD;
@@ -305,9 +331,10 @@ void onLongRelease(){
     if(fullPet){
         petCount++;
         lastPetTime = now;
-        if(petCount >= 5)
-            setState(STATE_EXCITED);
-        else 
+        if(petCount >= 5){
+            dizzyFromPetting = true;
+            setState(STATE_DIZZY);
+        }else 
             setState(STATE_POSTPET);
     }else{
         setState(STATE_NORMAL);
@@ -336,7 +363,7 @@ void drawCrescentEye(int centerX, float eyeH){
         blackR    = 23;       // radius + 2
     } else {
         centerY   = EYE_Y + EYE_H / 2;
-        float t   = min (eyeH, float(eyeH) / (float)EYE_H);
+        float t   = min (eyeH, (float)EYE_H) / (float)EYE_H;
         radius    = 10 + (int)(t * 4);
         thickness = 3  + (int)(t * 5);
         blackR    = radius - 1;
@@ -457,12 +484,11 @@ void updateSquint(){
 
 // post petting face
 
-void drawEyes()
-{
+void drawEyes(){
     int leftCX = EYE_X_L + BASE_EYE_W / 2;
     int rightCX = EYE_X_R + BASE_EYE_W / 2;
     
-     switch(currentState){
+    switch(currentState){
         case STATE_POSTPET:{
             if(petCount <= 1){
                 drawCrescentEye(leftCX,leftEye.h);
@@ -496,7 +522,7 @@ void drawEyes()
             return;
         }
 
-        case STATE_EXCITED:{
+        case STATE_DIZZY:{
             float rot = (float)(now / 75.0f) * 0.18f;
             int cy = EYE_Y + EYE_H / 2;
             drawSpiralEye(leftCX, cy,  1, rot);
@@ -509,20 +535,34 @@ void drawEyes()
             if(currentYawnFactor > 0.01f){
                 drawCrescentEye(leftCX,  0);
                 drawCrescentEye(rightCX, 0);
+                
                 return;
             }
             int h = (int)rightEye.h;
             if(h < 2) h = 2;
-            int radius = (h <= 4) ? 2 : EYE_RADIUS;
+            int radius = (h <= 4) ? 2 : min(EYE_RADIUS, h / 2);
             int ly     = EYE_Y + (EYE_H - h) / 2;
+            int hoodH = (int)(tiredeyes * EYE_H);  // max droop
+
+            if(idlePhase >= 3 && hoodH > 0){
+                // Draw full eye rect at fixed position — never changes size
+                display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+                display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+                
+                // Paint hood down from top in black — covers the eye from above
+                display.fillRect(EYE_X_L, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+                display.fillRect(EYE_X_R, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+                return;
+            }
 
             display.fillRoundRect(EYE_X_L + (int)leftEye.OffsetX, ly + (int)leftEye.OffsetY, 
             BASE_EYE_W, h, radius, SSD1306_WHITE);
             display.fillRoundRect(EYE_X_R + (int)rightEye.OffsetX, ly + (int)rightEye.OffsetY, 
             BASE_EYE_W, h, radius, SSD1306_WHITE);
+            
             return;
-        }
-   }
+        } 
+    }
 }
 
 
@@ -539,15 +579,10 @@ void drawMouth(){
         return;
     }
 
-    if(currentState == STATE_EXCITED){
-    drawWavyLineMouth();
-    return;
-    }
-
-    int s = (int)currentMouthSize;
-    if(s < 1)
+    if(currentState == STATE_DIZZY){
+        drawWavyLineMouth();
         return;
-
+    }
     if(currentYawnFactor > 0.05f){
         int r = (int)(currentYawnFactor * 16);
         if(r > 1){
@@ -555,15 +590,38 @@ void drawMouth(){
             display.fillCircle(64, centerY, r, SSD1306_WHITE);
         }
         return;
+    }  
+
+    if(idlePhase >= 3){
+        if(yawnMouthBlankUntil != 0 && now < yawnMouthBlankUntil)
+            return;  // still in blank, draw nothing
+        if(yawnMouthBlankUntil != 0)
+            yawnMouthBlankUntil = 0;  // blank just ended, clear it
+
+        if(idlePhase >= 4){
+           if(isSleeping){
+                display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
+                return;
+            }
+            // eyes still closing, show flat line still
+            display.drawFastHLine(58, MOUTH_Y + 4, 12, SSD1306_WHITE);
+            display.drawFastHLine(58, MOUTH_Y + 5, 12, SSD1306_WHITE);
+            return;
+        }
+        display.drawFastHLine(58, MOUTH_Y + 4, 12, SSD1306_WHITE);
+        display.drawFastHLine(58, MOUTH_Y + 5, 12, SSD1306_WHITE);
+        return;
     }
+
     if(yawnMouthBlankUntil != 0){
-    if(now < yawnMouthBlankUntil)
-        return;  // draw nothing
-        // blank period just ended — restore mouth
+        if(now < yawnMouthBlankUntil) return;
         yawnMouthBlankUntil = 0;
         targetMouthSize = 9.0;
-        currentMouthSize = 9.0;  // snap, no tween gap
+        currentMouthSize = 9.0;
     }
+
+    int s = (int)currentMouthSize;
+    if(s < 1) return;
 
     int mx = 64 + (int)mouthOffsetX;
 
@@ -572,11 +630,10 @@ void drawMouth(){
 }
 
 void updateBlink(){
-    if(currentState != STATE_NORMAL) return;
-    
-    if(currentYawnFactor > 0.05f) return;
+    if(currentState != STATE_NORMAL || currentYawnFactor > 0.05f 
+        || now - lastInteractionTime < 2000 || idlePhase >= 4) 
+        return;
 
-    if(now - lastInteractionTime < 2000) return;
 
     static long interval = 3500;
     static long duration = 150;
@@ -586,22 +643,30 @@ void updateBlink(){
     if(!isBlinking && now - lastBlink_time > interval){
         isBlinking = 1;
         Blinkstart_time = now;
-        leftEye.h = 2;      rightEye.h = 2;
+
+        leftEye.h = 2; rightEye.h = 2;
         setEyeTargetH(2);
     }
 
     if(isBlinking && now - Blinkstart_time > duration){
         isBlinking = 0;
         lastBlink_time = now; 
-        setEyeTargetH(EYE_H);
-
-        if(random(0,100) < 10){
-            interval = random(200,400);
+        
+        if(idlePhase >= 3){
+            float restH = EYE_H * (1.0f - tiredeyes * 0.6f);
+            restH = max(8.0f, restH);
+            setEyeTargetH(restH);
+            leftEye.h = restH;
+            rightEye.h = restH;
+            interval = random(8000, 12000);
+            duration = random(300, 500); 
+        }else {
+            setEyeTargetH(EYE_H);
+            if(random(0,100) < 10) interval = random(200,400);
+            else{
+                interval = random(3500,7000); duration = random(100,200); 
+            }
         }
-        else{
-            interval = random(3500,7000);
-        }
-        duration = random(100, 200);
     }
 }
 // single tap  → quick press and release under 600ms, no second tap follows
@@ -617,25 +682,22 @@ void updatePostTouch(){
     }
 }
 
-void updateExcited(){
-    if(currentState == STATE_EXCITED){
-        if(now - excitedStart >= EXCITED_CALM_TIME){
+void updateDizzy(){
+    if(currentState != STATE_DIZZY) return;
+    unsigned long dur = dizzyFromPetting ? DIZZY_CALM_TIME : 3000;
+    if(now - dizzyStart >= dur){
+        if(dizzyFromPetting){
             petCount = 0;
-            excitedEndTime = now;
-            setState(STATE_NORMAL);
-            targetMouthSize = 0; 
+            dizzyEndTime = now;
+            targetMouthSize = 0;
         }
-        return;
-    }
-    if(excitedEndTime == 0) return;
-    if(now - excitedEndTime >= 5000){
-        targetMouthSize = 9.0;
-        excitedEndTime = 0;
+        dizzyFromPetting = false;
+        setState(STATE_NORMAL);
     }
 }
 
 void updatePetReset(){
-    if(currentState == STATE_EXCITED) return;
+    if(currentState == STATE_DIZZY) return;
     if(petCount == 0) return;
     if(now - lastPetTime >= PET_RESET_TIME){
         petCount = 0;
@@ -650,8 +712,9 @@ void updatePetting(){
 }
 
 void drawCalmBar(){
-    if(currentState != STATE_EXCITED) return;
-    float progress = (float)(now - excitedStart) / EXCITED_CALM_TIME;
+    if(currentState != STATE_DIZZY) return;
+    if(!dizzyFromPetting) return;
+    float progress = (float)(now - dizzyStart) / DIZZY_CALM_TIME;
     if(progress > 1.0) progress = 1.0;
     int barH = (int)(progress * 60);
     display.fillRect(125, 62 - barH, 1, barH, SSD1306_WHITE);
@@ -732,6 +795,7 @@ void lookAround(){
 
 void updateLook(){
     if(currentYawnFactor > 0.05f) return;
+    if(idlePhase >= 3) return;
 
     if(now >= nextLookTime && currentState == STATE_NORMAL && now - lastInteractionTime > 5000){
         lookAround();
@@ -803,16 +867,33 @@ void updateIdle(){
     }
     else if(idlePhase == 1 && elapsed >= 45000){
         idlePhase = 2;
+        setEyeOffsets(0, 0);
+        targetMouthSize = 0;
         triggerYawn();
     }
     else if(idlePhase == 2 && elapsed >= 60000){
         idlePhase = 3;
+        setEyeOffsets(0, 0);
+        setEyeTargetH(EYE_H);
+        targetMouthSize = 0;
         triggerYawn();
-        // start drooping
     }
     else if(idlePhase == 3 && elapsed >= 75000){
         idlePhase = 4;
-        // enter sleep
+        isSleeping = false;
+        targetTiredEyes = 1.0f;
+    }
+
+    if(idlePhase == 3){
+        targetTiredEyes = min(0.33f, (float)(elapsed - 60000) / 15000.0f);
+    }
+    else if(idlePhase == 4 && !isSleeping){
+        targetTiredEyes = min(1.0f, 0.33f + (float)(elapsed - 75000) / 15000.0f);
+        if(tiredeyes >= 0.99f){
+        isSleeping = true;
+        leftEye.h = 2.0f;  rightEye.h = 2.0f;
+        leftEye.targetH = 2.0f; rightEye.targetH = 2.0f;
+        }
     }
 }
 
@@ -822,6 +903,7 @@ void triggerYawn(){
     isYawnEye = true;
     targetYawnFactor =1.0f;
     yawnEndTime=now + 3000;
+    setEyeOffsets(0, 0);
 }
 
 
@@ -861,7 +943,7 @@ void loop(){
         updateBlink();
         updateSquint();
         updatePostTouch();
-        updateExcited();
+        updateDizzy();
         updatePetReset();
         updatePetting();
         updateLook();
@@ -881,11 +963,11 @@ void loop(){
 
     if(currentMode == MODE_PET){
         if(singleTouch){
-            if(currentState != STATE_EXCITED)
+            if(currentState != STATE_DIZZY)
                 SingleTapAction(); 
             singleTouch = 0;
         }
-        if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_EXCITED){
+        if(isLongTouch && currentState != STATE_PETTING && currentState != STATE_DIZZY){
             LongPressAction();
         }
     }else{
@@ -893,9 +975,10 @@ void loop(){
     }
     
     if(doubleTouch){ 
+        if(currentState != STATE_DIZZY)
             doubleTapAction(); 
-            doubleTouch = 0; 
-    
+        doubleTouch = 0; 
+        
     }
     //----------------Tweening----------------
     currentMouthSize = moveTowards(currentMouthSize, targetMouthSize, 1.5);
@@ -903,6 +986,7 @@ void loop(){
     tweenEye(rightEye);
 
     mouthOffsetX = smoothMove(mouthOffsetX, targetMouthOffsetX);
+    
 
     //-------------yawning--------------------
 
@@ -910,12 +994,18 @@ void loop(){
         targetYawnFactor = 0.0f;
         yawnEndTime = 0;
         yawnMouthBlankUntil = now + 3000;
+        if(idlePhase < 3)
+            setEyeTargetH(EYE_H);
     }
-    if(currentYawnFactor <= 0.0f && yawnEndTime ==0)
+
+    if(currentYawnFactor <= 0.0f && isYawnEye && yawnEndTime == 0){
         isYawnEye = false;
-
+        if(idlePhase < 3){
+            setEyeTargetH(EYE_H);
+        }
+    }
     currentYawnFactor = moveTowards(currentYawnFactor, targetYawnFactor, YAWN_SPEED);
-
+    tiredeyes = moveTowards(tiredeyes, targetTiredEyes, 0.005f);
     display.clearDisplay();
 
     if(currentMode == MODE_CLOCK){
