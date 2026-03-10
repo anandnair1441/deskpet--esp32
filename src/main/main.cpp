@@ -18,15 +18,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 //-----------------------Input State Machine-----------------------
 #define TOUCH_PIN 4
-#define DOUBLE_TAP_DELAY 350 // Max time b/w taps for double-click
+#define DOUBLE_TAP_DELAY 450 // Max time b/w taps for double-click
 #define LONG_PRESS_TIME 600  // Time to hold before triggering Long Press
 #define PET_THRESHOLD 2000
 
-enum Mode{ 
-    MODE_PET, 
-    MODE_CLOCK 
-};
-Mode currentMode = MODE_PET;
+int currentMode = 0;
 
 enum FaceState{
     STATE_NORMAL,
@@ -77,6 +73,7 @@ unsigned long rapidTapWindowStart = 0;
 unsigned long lastInteractionTime = 0;
 unsigned long lastBlink_time = 0;
 unsigned long squintStartTime = 0;
+unsigned long sleepStartTime = 0;
 
 struct EyeState {
     float h = EYE_H;
@@ -287,6 +284,8 @@ void onTouchStart(){
     tiredeyes = 0.0f;
     targetTiredEyes = 0.0f;
     isSleeping = false;
+    currentMode=0;
+    sleepStartTime = 0;
 
     if(now - rapidTapWindowStart > RAPID_TAP_WINDOW){
         rapidTapCount = 0;
@@ -341,6 +340,12 @@ void onLongRelease(){
     }
 }
 
+
+void triggerModeChange() {
+    currentMode++;
+    if (currentMode > 1) currentMode = 0;
+    //0=pet,1=clocl,2=weatther
+}
 
 void tweenEye(EyeState &eye){
     float prevH = eye.h;
@@ -458,10 +463,22 @@ void SingleTapAction(){
 }
 
 void doubleTapAction(){
-    if(currentMode == MODE_PET)
-        currentMode = MODE_CLOCK;
-    else
-        currentMode = MODE_PET;
+    if(currentMode == 1){
+        // waking from clock — full reset
+        currentMode = 0;
+        idlePhase = 0;
+        tiredeyes = 0.0f;
+        targetTiredEyes = 0.0f;
+        isSleeping = false;
+        sleepStartTime = 0;
+        setEyeTargetH(EYE_H);
+        leftEye.h = EYE_H;
+        rightEye.h = EYE_H;
+        setState(STATE_NORMAL);
+        lastInteractionTime = now;
+    } else {
+        currentMode = 1;
+    }
 }
 
 void LongPressAction()
@@ -544,7 +561,7 @@ void drawEyes(){
             int ly     = EYE_Y + (EYE_H - h) / 2;
             int hoodH = (int)(tiredeyes * EYE_H);  // max droop
 
-            if(idlePhase >= 3 && hoodH > 0){
+            if(idlePhase >= 3){
                 // Draw full eye rect at fixed position — never changes size
                 display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
                 display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
@@ -594,16 +611,18 @@ void drawMouth(){
 
     if(idlePhase >= 3){
         if(yawnMouthBlankUntil != 0 && now < yawnMouthBlankUntil)
-            return;  // still in blank, draw nothing
+            return;
         if(yawnMouthBlankUntil != 0)
-            yawnMouthBlankUntil = 0;  // blank just ended, clear it
+            yawnMouthBlankUntil = 0;
 
         if(idlePhase >= 4){
            if(isSleeping){
-                display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
+                float breathe = (sin(now * 0.0015f) + 1.0f) * 0.5f;  
+                int dotR = 1 + (int)(breathe * 2.0f);               
+                display.fillCircle(64, MOUTH_Y + 4, dotR, SSD1306_WHITE);
                 return;
             }
-            // eyes still closing, show flat line still
+            // eyes still closing, show flat
             display.drawFastHLine(58, MOUTH_Y + 4, 12, SSD1306_WHITE);
             display.drawFastHLine(58, MOUTH_Y + 5, 12, SSD1306_WHITE);
             return;
@@ -890,10 +909,15 @@ void updateIdle(){
     else if(idlePhase == 4 && !isSleeping){
         targetTiredEyes = min(1.0f, 0.33f + (float)(elapsed - 75000) / 15000.0f);
         if(tiredeyes >= 0.99f){
+        sleepStartTime = now;
         isSleeping = true;
         leftEye.h = 2.0f;  rightEye.h = 2.0f;
         leftEye.targetH = 2.0f; rightEye.targetH = 2.0f;
         }
+    }
+    if(isSleeping && sleepStartTime != 0 && now - sleepStartTime >= 20000){
+    currentMode = 1;
+    sleepStartTime = 0;
     }
 }
 
@@ -939,7 +963,7 @@ void loop(){
 
     touchInput();
 
-    if(currentMode == MODE_PET){
+    if(currentMode == 0){
         updateBlink();
         updateSquint();
         updatePostTouch();
@@ -961,7 +985,7 @@ void loop(){
         }
     }
 
-    if(currentMode == MODE_PET){
+    if(currentMode == 0){
         if(singleTouch){
             if(currentState != STATE_DIZZY)
                 SingleTapAction(); 
@@ -1006,11 +1030,11 @@ void loop(){
     }
     currentYawnFactor = moveTowards(currentYawnFactor, targetYawnFactor, YAWN_SPEED);
     tiredeyes = moveTowards(tiredeyes, targetTiredEyes, 0.005f);
+
     display.clearDisplay();
 
-    if(currentMode == MODE_CLOCK){
-        drawClock();   
-        //drawTinyFace();    
+    if(currentMode == 1){
+        drawClock();      
     } else{
         drawEyes();
         drawMouth();
