@@ -72,6 +72,8 @@ unsigned long rapidTapWindowStart = 0;
 
 unsigned long lastInteractionTime = 0;
 unsigned long lastBlink_time = 0;
+long blinkInterval = 3500;
+long blinkDuration = 150;
 unsigned long squintStartTime = 0;
 unsigned long sleepStartTime = 0;
 
@@ -163,6 +165,8 @@ void setState(FaceState State){
             targetMouthSize = 9.0;
             mouth_shape = MOUTH_NORMAL;
             lastBlink_time = now;
+            blinkInterval = 3500;
+            blinkDuration = 150;
             break;
 
         case STATE_SQUINTING:
@@ -655,12 +659,10 @@ void updateBlink(){
         return;
 
 
-    static long interval = 3500;
-    static long duration = 150;
     static int isBlinking = 0;
     static unsigned long Blinkstart_time = 0;
 
-    if(!isBlinking && now - lastBlink_time > interval){
+    if(!isBlinking && now - lastBlink_time >blinkInterval){
         isBlinking = 1;
         Blinkstart_time = now;
 
@@ -668,7 +670,7 @@ void updateBlink(){
         setEyeTargetH(2);
     }
 
-    if(isBlinking && now - Blinkstart_time > duration){
+    if(isBlinking && now - Blinkstart_time >blinkDuration){
         isBlinking = 0;
         lastBlink_time = now; 
         
@@ -678,13 +680,13 @@ void updateBlink(){
             setEyeTargetH(restH);
             leftEye.h = restH;
             rightEye.h = restH;
-            interval = random(8000, 12000);
-            duration = random(300, 500); 
+           blinkInterval = random(8000, 12000);
+           blinkDuration = random(300, 500); 
         }else {
             setEyeTargetH(EYE_H);
-            if(random(0,100) < 10) interval = random(200,400);
+            if(random(0,100) < 10)blinkInterval = random(200,400);
             else{
-                interval = random(3500,7000); duration = random(100,200); 
+               blinkInterval = random(3500,7000);blinkDuration = random(100,200); 
             }
         }
     }
@@ -988,12 +990,16 @@ void runStartup(){
         display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
         display.fillCircle(64, MOUTH_Y+5, mouthR, SSD1306_WHITE);
         display.fillCircle(64, MOUTH_Y+1, mouthR, SSD1306_BLACK); 
-        return;  
+        return; 
     }else{
+        setState(STATE_NORMAL);
+        startDone = true; lastInteractionTime = lastBlink_time =now;
         leftEye.h = rightEye.h = EYE_H;
         leftEye.targetH = rightEye.targetH = EYE_H;
-        currentMouthSize = targetMouthSize = 9;
-        startDone = true; lastInteractionTime = lastBlink_time =now;
+        currentMouthSize = targetMouthSize = 9.0;
+        drawEyes();
+        drawMouth();
+        display.display();
         return;
     }
 
@@ -1004,6 +1010,26 @@ void runStartup(){
 }
 
 
+    // }else if(elapsed <= 3600){                                                  //6
+    //     t = (elapsed-2700)/900.0f;
+    //     h = 2 + easeOut(t, 3)*19;
+    //     y = 40-h;
+    //     r = (h<=4)?2:min((float)EYE_RADIUS,h/2.0f);
+    // }else if(elapsed <= 4400){                                                  //7                
+    //     float q = easeOut(t, 2);
+    //     t = (elapsed-3600)/800.0f;
+    //     h =21 + q *(EYE_H -21); //21->35
+    //     float yBottom = EYE_Y + EYE_H - h;
+    //     float yCenter = EYE_Y + (EYE_H - h) / 2;
+    //     y = yBottom + (yCenter - yBottom) * q;
+    //     r = (h<=4)?2:min((float)EYE_RADIUS, h/2.0f);
+    //     mouthR = max(1, (int)q * 9);
+
+    //     display.fillRoundRect(EYE_X_L, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
+    //     display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
+    //     display.fillCircle(64, MOUTH_Y+5, mouthR, SSD1306_WHITE);
+    //     display.fillCircle(64, MOUTH_Y+1, mouthR, SSD1306_BLACK); 
+    //     return;  
 
 
 
@@ -1058,7 +1084,7 @@ void loop(){
             lastNtpAttempt = now;
             configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
             struct tm timeinfo;
-            if(getLocalTime(&timeinfo)){
+            if(getLocalTime(&timeinfo, 1000)){
                 ntpSynced = true;
             }
         }
