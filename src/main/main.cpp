@@ -38,8 +38,8 @@ FaceState currentState = STATE_NORMAL;
 #define BASE_EYE_W 30
 #define EYE_H 35
 #define EYE_Y 5
-#define EYE_X_L 16
-#define EYE_X_R 82
+#define EYE_X_L 20
+#define EYE_X_R 78
 #define EYE_RADIUS 8
 #define MOUTH_Y 44
 
@@ -50,7 +50,7 @@ FaceState currentState = STATE_NORMAL;
 #define YAWN_SPEED 0.04f
 
 #define RAPID_TAP_WINDOW 3000
-#define RAPID_TAP_THRESHOLD 5
+#define RAPID_TAP_THRESHOLD 7
 
 #define NTP_RETRY_INTERVAL 30000
 
@@ -125,6 +125,7 @@ float targetTiredEyes = 0.0f;
 bool isSleeping = false;
 bool startDone = false;
 unsigned long StartupStart = 0;
+bool wakeFromSleep = false;
 
 void onTouchStart();
 void onLongRelease();
@@ -233,7 +234,7 @@ void touchInput(){
         isTouching = 1;
         touchStartTime = now;
         onTouchStart();
-        if(currentState != STATE_DIZZY && currentState != STATE_POSTPET)
+        if(startDone && currentState != STATE_DIZZY && currentState != STATE_POSTPET)
             setEyeTargetH(EYE_H); 
     }
 
@@ -283,27 +284,51 @@ void onTouchStart(){
     targetMouthOffsetX = 0;
     mouthFollowing = false;
     centerPauseActive = false;
-    idlePhase = 0;
     yawnMouthBlankUntil = 0;
-    currentMouthSize = 9.0;
-    targetMouthSize = 9.0;
-    tiredeyes = 0.0f;
-    targetTiredEyes = 0.0f;
-    isSleeping = false;
-    currentMode=0;
-    sleepStartTime = 0;
+    mouth_shape = MOUTH_NORMAL;
 
-    if(now - rapidTapWindowStart > RAPID_TAP_WINDOW){
+    if(isSleeping || idlePhase >= 3){
+        currentMode = 0;
+        isSleeping = false;
+        sleepStartTime = 0;
+        idlePhase = 0;
+        tiredeyes = 0.0f;
+        dizzyEndTime = 0; 
         rapidTapCount = 0;
         rapidTapWindowStart = now;
+        nextLookTime = now + 5000;
+        targetTiredEyes = 0.0f;
+        currentMouthSize = 2.0f;
+        targetMouthSize = 9.0f;
+        currentState = STATE_NORMAL;
+        mouth_shape      = MOUTH_NORMAL;
+        StartupStart     = now;
+        wakeFromSleep    = true;
+        startDone        = false;
+        return;
+
+    }else {
+        idlePhase = 0;
+        tiredeyes = 0.0f;
+        targetTiredEyes = 0.0f;
+        isSleeping = false;
+        sleepStartTime = 0;
+        currentMouthSize = 9.0;
+        targetMouthSize = 9.0;
     }
-    rapidTapCount++;
+    
+    if(now - rapidTapWindowStart > RAPID_TAP_WINDOW){
+        rapidTapCount = 1;
+        rapidTapWindowStart = now;
+    }else{
+        rapidTapCount++;
+    }
     if(rapidTapCount >= RAPID_TAP_THRESHOLD){
         rapidTapCount = 0;
         dizzyFromPetting = false;
         setState(STATE_DIZZY);
         return;
-}
+    }
 
     if(currentState == STATE_DIZZY){
         dizzyStart = now;   
@@ -320,12 +345,10 @@ void onTouchStart(){
     dizzyEndTime = 0;
     targetMouthSize = 9.0;
     }
-
-    mouth_shape = MOUTH_NORMAL;
-    targetMouthSize = 9.0;
 }
 
 void onLongRelease(){
+    if(!startDone) return;
     isLongTouch = 0;
     if(currentState == STATE_DIZZY){ 
         dizzyStart = now;            
@@ -469,21 +492,36 @@ void SingleTapAction(){
 }
 
 void doubleTapAction(){
+    if(!startDone) return;
     if(currentMode == 1){
-        // waking from clock — full reset
         currentMode = 0;
-        idlePhase = 0;
-        tiredeyes = 0.0f;
-        targetTiredEyes = 0.0f;
         isSleeping = false;
         sleepStartTime = 0;
-        setEyeTargetH(EYE_H);
-        leftEye.h = EYE_H;
-        rightEye.h = EYE_H;
-        setState(STATE_NORMAL);
         lastInteractionTime = now;
-    } else {
+        if(idlePhase >= 3){
+            idlePhase = 0;
+            tiredeyes = 0.0f;
+            targetTiredEyes = 0.0f;
+             dizzyEndTime     = 0;        
+            rapidTapCount    = 0;        
+            rapidTapWindowStart = now;   
+            nextLookTime     = now + 5000;
+            currentMouthSize = 2.0f;
+            targetMouthSize  = 9.0f;
+            currentState     = STATE_NORMAL;
+            mouth_shape      = MOUTH_NORMAL;
+            StartupStart     = now;
+            wakeFromSleep    = true;
+            startDone        = false;
+        } else {
+            idlePhase = 0;
+            tiredeyes = 0.0f;
+            targetTiredEyes = 0.0f;
+            setState(STATE_NORMAL);
+        }
+    } else if(startDone) {
         currentMode = 1;
+        idlePhase = 0;
     }
 }
 
@@ -680,8 +718,8 @@ void updateBlink(){
             setEyeTargetH(restH);
             leftEye.h = restH;
             rightEye.h = restH;
-           blinkInterval = random(8000, 12000);
-           blinkDuration = random(300, 500); 
+            blinkInterval = random(8000, 12000);
+            blinkDuration = random(300, 500);
         }else {
             setEyeTargetH(EYE_H);
             if(random(0,100) < 10)blinkInterval = random(200,400);
@@ -874,8 +912,8 @@ void drawClock(){
 }
 
 void updateIdle(){
+    if(!startDone) return;
     if(currentState != STATE_NORMAL) return;
-    
     unsigned long elapsed = now - lastInteractionTime;
 
     if(elapsed < 3000){ 
@@ -943,8 +981,9 @@ float easeInOut(float t){
 void runStartup(){
     display.clearDisplay();
     unsigned long elapsed = now - StartupStart;
+    if(wakeFromSleep) elapsed += 2700;
     float t, h, y; 
-    int r, mouthR;
+    int r, mouthR, hoodH;
     if(elapsed <= 800){   
         mouthR = 2;                                                             //1
         display.fillRect(EYE_X_L, EYE_Y + EYE_H - 4, BASE_EYE_W, 2, SSD1306_WHITE);
@@ -971,65 +1010,63 @@ void runStartup(){
         display.fillRect(EYE_X_R, EYE_Y+EYE_H-4, BASE_EYE_W, 2, SSD1306_WHITE);
         display.fillCircle(64, MOUTH_Y+4, mouthR, SSD1306_WHITE);
         return;
-    }else if(elapsed <= 3600){                                                  //6
+    }else if(elapsed <= 3500){                                                  //6
         t = (elapsed-2700)/900.0f;
-        h = 2 + easeOut(t, 3)*19;
-        y = 40-h;
-        r = (h<=4)?2:min((float)EYE_RADIUS,h/2.0f);
-    }else if(elapsed <= 4400){                                                  //7                
-        float q = easeOut(t, 2);
-        t = (elapsed-3600)/800.0f;
-        h =21 + q *(EYE_H -21); //21->35
-        float yBottom = EYE_Y + EYE_H - h;
-        float yCenter = EYE_Y + (EYE_H - h) / 2;
-        y = yBottom + (yCenter - yBottom) * q;
-        r = (h<=4)?2:min((float)EYE_RADIUS, h/2.0f);
-        mouthR = max(1, (int)q * 9);
-
-        display.fillRoundRect(EYE_X_L, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
-        display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
-        display.fillCircle(64, MOUTH_Y+5, mouthR, SSD1306_WHITE);
-        display.fillCircle(64, MOUTH_Y+1, mouthR, SSD1306_BLACK); 
-        return; 
-    }else{
-        setState(STATE_NORMAL);
-        startDone = true; lastInteractionTime = lastBlink_time =now;
-        leftEye.h = rightEye.h = EYE_H;
-        leftEye.targetH = rightEye.targetH = EYE_H;
-        currentMouthSize = targetMouthSize = 9.0;
-        drawEyes();
-        drawMouth();
-        display.display();
+        hoodH = EYE_H - (int)(easeOut(t, 3)*21);
+       
+        display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRect(EYE_X_L, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+        display.fillRect(EYE_X_R, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+        display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
         return;
-    }
+        
+    }else if(elapsed <= 3900){                                                  //7                
+        display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRect(EYE_X_L, EYE_Y, BASE_EYE_W, 14, SSD1306_BLACK);
+        display.fillRect(EYE_X_R, EYE_Y, BASE_EYE_W, 14, SSD1306_BLACK);
+        display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
+        return;
+        
+    }else if(elapsed <= 4700){                                                  //8
+        t = (elapsed - 3900) / 800.0f;
+        hoodH = 14 - (int)(easeOut(t, 3)*14);
 
-    display.fillCircle(64, MOUTH_Y + 4, r, SSD1306_WHITE);
-    display.fillRoundRect(EYE_X_L, y, BASE_EYE_W, h, r, SSD1306_WHITE);
-    display.fillRoundRect(EYE_X_R, y, BASE_EYE_W, h, r, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+        display.fillRect(EYE_X_L, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+        display.fillRect(EYE_X_R, EYE_Y, BASE_EYE_W, hoodH, SSD1306_BLACK);
+        display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
+        return;
+        
+    }else{
+    wakeFromSleep    = false;
+    currentState     = STATE_NORMAL;
+    mouth_shape      = MOUTH_NORMAL;
+    currentMouthSize = 2.0f;
+    targetMouthSize  = 9.0f;
+    leftEye.h        = EYE_H;  rightEye.h        = EYE_H;
+    leftEye.targetH  = EYE_H;  rightEye.targetH  = EYE_H;
+    lastBlink_time   = now;
+    blinkInterval    = 3500;
+    blinkDuration    = 150;
+    lastInteractionTime = now;
+    isLongTouch  = false;
+    isTouching   = false;
+    touchCount   = 0;
+    startDone = true;
 
+    drawEyes();
+    drawMouth();
+    return;
 }
 
+    display.fillCircle(64, MOUTH_Y + 4, 2, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_L, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
 
-    // }else if(elapsed <= 3600){                                                  //6
-    //     t = (elapsed-2700)/900.0f;
-    //     h = 2 + easeOut(t, 3)*19;
-    //     y = 40-h;
-    //     r = (h<=4)?2:min((float)EYE_RADIUS,h/2.0f);
-    // }else if(elapsed <= 4400){                                                  //7                
-    //     float q = easeOut(t, 2);
-    //     t = (elapsed-3600)/800.0f;
-    //     h =21 + q *(EYE_H -21); //21->35
-    //     float yBottom = EYE_Y + EYE_H - h;
-    //     float yCenter = EYE_Y + (EYE_H - h) / 2;
-    //     y = yBottom + (yCenter - yBottom) * q;
-    //     r = (h<=4)?2:min((float)EYE_RADIUS, h/2.0f);
-    //     mouthR = max(1, (int)q * 9);
-
-    //     display.fillRoundRect(EYE_X_L, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
-    //     display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
-    //     display.fillCircle(64, MOUTH_Y+5, mouthR, SSD1306_WHITE);
-    //     display.fillCircle(64, MOUTH_Y+1, mouthR, SSD1306_BLACK); 
-    //     return;  
+}
 
 
 
@@ -1065,7 +1102,6 @@ void loop(){
         delay(20);
         return;
     }
-
     touchInput();
 
     if(currentMode == 0){
@@ -1078,6 +1114,7 @@ void loop(){
         updateLook();
         updateIdle();
     }
+    
         //----------------time---------------------
     if(WiFi.status() == WL_CONNECTED && !ntpSynced){
         if(lastNtpAttempt == 0 || now - lastNtpAttempt >= NTP_RETRY_INTERVAL){
@@ -1140,7 +1177,7 @@ void loop(){
 
     if(currentMode == 1){
         drawClock();      
-    } else{
+    } else if(startDone){
         drawEyes();
         drawMouth();
         drawCalmBar();
