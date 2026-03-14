@@ -157,6 +157,15 @@ float smoothMove(float current, float target){
     return (current + target) / 2.0f;
 }
 
+//------------------Squint Styles------------------
+enum SquintStyle
+{
+    SQUINT_FLAT,
+    SQUINT_CRESCENT,
+    SQUINT_HAPPYCHEEKS
+};
+
+SquintStyle currentSquintStyle;
 
 void setState(FaceState State){
     currentState = State;
@@ -175,7 +184,7 @@ void setState(FaceState State){
             break;
         
         case STATE_PETTING:
-            setEyeTargetH(6.0);
+            currentSquintStyle=SQUINT_HAPPYCHEEKS;
             targetMouthSize = 0;
             break;
         
@@ -215,14 +224,7 @@ void setEyeOffsets(float ox, float oy){
     leftEye.targetOffsetY  = oy; rightEye.targetOffsetY = oy;
 }
 
-//------------------Squint Styles------------------
-enum SquintStyle
-{
-    SQUINT_FLAT,
-    SQUINT_CRESCENT
-};
 
-SquintStyle currentSquintStyle;
 
 //-----------------------INPUT-----------------------
 
@@ -415,37 +417,19 @@ void drawCrescentEye(int centerX, float eyeH){
     display.fillCircle(centerX, centerY + thickness + 1, blackR, SSD1306_BLACK);
 }
 
-void drawPostPettingEyes()
-{
-    // ----- Adjustable parameters -----
-    int radiusX = 10;    // less width
-    int radiusY = (EYE_H/2)+2;   //  more height
-    int centery     = EYE_Y + (EYE_H /2);
-    int leftCX = EYE_X_L + BASE_EYE_W / 2;
-    int rightCX= EYE_X_R + BASE_EYE_W / 2;
+void drawPostPettingEyes(){
+    int outerY = 26;
+    int innerY = 30;
+    int botY   = 42;
+    display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+    // left eye — fill band then restore outer white corner
+    display.fillRect(EYE_X_L, outerY, BASE_EYE_W, botY - outerY, SSD1306_BLACK);
+    display.fillTriangle(EYE_X_L, outerY, EYE_X_L + BASE_EYE_W, outerY, EYE_X_L, innerY, SSD1306_WHITE);
+    // right eye — mirror
+    display.fillRect(EYE_X_R, outerY, BASE_EYE_W, botY - outerY, SSD1306_BLACK);
+    display.fillTriangle(EYE_X_R + BASE_EYE_W, outerY, EYE_X_R, outerY, EYE_X_R + BASE_EYE_W, innerY, SSD1306_WHITE);
 
-    for (int y = 0; y <= radiusY; y++){
-        float ratio = (float)y / radiusY;
-
-        // Ellipse equation
-        int xSpan = radiusX * sqrt(1.0 - ratio * ratio);
-
-        // Left eye
-        display.drawFastHLine(
-            leftCX- xSpan,
-            centery - y,
-            xSpan * 2,
-            SSD1306_WHITE
-        );
-
-        // Right eye
-        display.drawFastHLine(
-            rightCX- xSpan,
-            centery - y,
-            xSpan * 2,
-            SSD1306_WHITE
-        );
-    }
 }
 
 void drawWavyLineMouth(){
@@ -473,14 +457,28 @@ void drawSpiralEye(int cx, int cy, int direction, float rotationOffset){
     }
 }
 
+void drawHappyCheeks(){
+    int lCX = EYE_X_L + BASE_EYE_W / 2;
+    int rCX = EYE_X_R + BASE_EYE_W / 2;
+    display.fillRoundRect(EYE_X_L, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_R, EYE_Y, BASE_EYE_W, EYE_H, EYE_RADIUS, SSD1306_WHITE);
+    float cr = 25.0f + sin(now * 0.003f) * 1.5f;
+    display.fillCircle(lCX, 46, (int)cr, SSD1306_BLACK);
+    display.fillCircle(rCX, 46, (int)cr, SSD1306_BLACK);
+    return;
+}
+
 void SingleTapAction(){
     setState(STATE_SQUINTING);
     squintStartTime = now;
     // Randomly choose eye style
-    if(random(0, 2) == 1)
+    int r = random(0, 3);
+    if(r==0)
         currentSquintStyle = SQUINT_FLAT;
-    else
+    else if(r==1)
         currentSquintStyle = SQUINT_CRESCENT;
+    else
+        currentSquintStyle = SQUINT_HAPPYCHEEKS;
 
     // 40% chance of bigger lower smile
     if(random(0, 100) < 40){
@@ -528,7 +526,7 @@ void doubleTapAction(){
 void LongPressAction()
 {
     setState(STATE_PETTING);
-    currentSquintStyle = SQUINT_CRESCENT;
+    currentSquintStyle = SQUINT_HAPPYCHEEKS;
 }
 
 void updateSquint(){
@@ -539,11 +537,6 @@ void updateSquint(){
     } 
 }
 
-// petting animation after and if its long enough a happy content face at the end
-
-// only three modes changable via manually--pet normal,clk,weather
-
-// post petting face
 
 void drawEyes(){
     int leftCX = EYE_X_L + BASE_EYE_W / 2;
@@ -562,8 +555,7 @@ void drawEyes(){
         }
 
         case STATE_PETTING:{
-            drawCrescentEye(leftCX,leftEye.h);
-            drawCrescentEye(rightCX,rightEye.h);
+            drawHappyCheeks();
             return;
         }
 
@@ -572,13 +564,16 @@ void drawEyes(){
                 drawCrescentEye(leftCX,leftEye.h);
                 drawCrescentEye(rightCX,rightEye.h);
                 return;
+            }if(currentSquintStyle == SQUINT_HAPPYCHEEKS){
+                drawHappyCheeks();
+                return;
             }
-            // flat squint falls through to default with small h
+            // flat squint
             {
-                int h  = (int)rightEye.h;
-                int ly = EYE_Y + (EYE_H - h) / 2;
-                display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
-                display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
+            int h  = (int)rightEye.h;
+            int ly = EYE_Y + (EYE_H - h) / 2;
+            display.fillRoundRect(EYE_X_L, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
+            display.fillRoundRect(EYE_X_R, ly, BASE_EYE_W, h, 4, SSD1306_WHITE);
             }
             return;
         }
@@ -764,12 +759,6 @@ void updatePetReset(){
     }
 }
 
-//postpet eye changing height
-void updatePetting(){
-    if(currentState != STATE_PETTING) return;
-    float ch = 6 + sin(now * 0.003) * 2;
-    leftEye.h = ch; rightEye.h = ch;
-}
 
 void drawCalmBar(){
     if(currentState != STATE_DIZZY) return;
@@ -1110,7 +1099,6 @@ void loop(){
         updatePostTouch();
         updateDizzy();
         updatePetReset();
-        updatePetting();
         updateLook();
         updateIdle();
     }
