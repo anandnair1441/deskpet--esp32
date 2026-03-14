@@ -121,6 +121,8 @@ unsigned long yawnMouthBlankUntil = 0;
 float tiredeyes = 0.0f;
 float targetTiredEyes = 0.0f;
 bool isSleeping = false;
+bool startDone = false;
+unsigned long StartupStart = 0;
 
 void onTouchStart();
 void onLongRelease();
@@ -552,7 +554,6 @@ void drawEyes(){
             if(currentYawnFactor > 0.01f){
                 drawCrescentEye(leftCX,  0);
                 drawCrescentEye(rightCX, 0);
-                
                 return;
             }
             int h = (int)rightEye.h;
@@ -738,7 +739,6 @@ void drawCalmBar(){
     int barH = (int)(progress * 60);
     display.fillRect(125, 62 - barH, 1, barH, SSD1306_WHITE);
 }
-
 
 //-------------------lookaround------------------
 //    0-34  (35%) → center
@@ -930,8 +930,78 @@ void triggerYawn(){
     setEyeOffsets(0, 0);
 }
 
+float easeOut(float t,int exp){
+    return 1 - pow(1 - t, exp);
+}
+float easeInOut(float t){
+    if (t < 0.5) return 2 * t * t;
+    else         return 1 - pow(-2*t + 2, 2) / 2;
+} 
 
+void runStartup(){
+    display.clearDisplay();
+    unsigned long elapsed = now - StartupStart;
+    float t, h, y; 
+    int r, mouthR;
+    if(elapsed <= 800){   
+        mouthR = 2;                                                             //1
+        display.fillRect(EYE_X_L, EYE_Y + EYE_H - 4, BASE_EYE_W, 2, SSD1306_WHITE);
+        display.fillRect(EYE_X_R, EYE_Y + EYE_H - 4, BASE_EYE_W, 2, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y + 4, mouthR, SSD1306_WHITE);
+        return;
+    }else if(elapsed <= 1400){                                                  //2
+        t = (elapsed-800)/600.0f;
+        h = 2 + easeOut(t, 4) * 4;        // 2->6px
+        y = EYE_Y + EYE_H - h;           // bottom pin
+        r = (h<=4)?2:min((float)EYE_RADIUS, h/2.0f);           
+    }else if(elapsed <= 1900){                                                  //3
+        h = 6;
+        y = 34;
+        r=2;
+    }else if(elapsed <= 2500){                                                  //4
+        t = (elapsed-1900)/600.0f;
+        h = 6- easeInOut(t)*4; //6->2
+        y = 40-h;
+        r=2;
+    }else if(elapsed <= 2700 ){   
+        mouthR = 2;                                                             //5
+        display.fillRect(EYE_X_L, EYE_Y+EYE_H-4, BASE_EYE_W, 2, SSD1306_WHITE);
+        display.fillRect(EYE_X_R, EYE_Y+EYE_H-4, BASE_EYE_W, 2, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y+4, mouthR, SSD1306_WHITE);
+        return;
+    }else if(elapsed <= 3600){                                                  //6
+        t = (elapsed-2700)/900.0f;
+        h = 2 + easeOut(t, 3)*19;
+        y = 40-h;
+        r = (h<=4)?2:min((float)EYE_RADIUS,h/2.0f);
+    }else if(elapsed <= 4400){                                                  //7                
+        float q = easeOut(t, 2);
+        t = (elapsed-3600)/800.0f;
+        h =21 + q *(EYE_H -21); //21->35
+        float yBottom = EYE_Y + EYE_H - h;
+        float yCenter = EYE_Y + (EYE_H - h) / 2;
+        y = yBottom + (yCenter - yBottom) * q;
+        r = (h<=4)?2:min((float)EYE_RADIUS, h/2.0f);
+        mouthR = max(1, (int)q * 9);
 
+        display.fillRoundRect(EYE_X_L, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
+        display.fillRoundRect(EYE_X_R, (int)y, BASE_EYE_W, (int)h, r, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y+5, mouthR, SSD1306_WHITE);
+        display.fillCircle(64, MOUTH_Y+1, mouthR, SSD1306_BLACK); 
+        return;  
+    }else{
+        leftEye.h = rightEye.h = EYE_H;
+        leftEye.targetH = rightEye.targetH = EYE_H;
+        currentMouthSize = targetMouthSize = 9;
+        startDone = true; lastInteractionTime = lastBlink_time =now;
+        return;
+    }
+
+    display.fillCircle(64, MOUTH_Y + 4, r, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_L, y, BASE_EYE_W, h, r, SSD1306_WHITE);
+    display.fillRoundRect(EYE_X_R, y, BASE_EYE_W, h, r, SSD1306_WHITE);
+
+}
 
 
 
@@ -948,6 +1018,7 @@ void setup(){
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
     display.setTextColor(SSD1306_WHITE);
+    
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
         Serial.println("OLED failed");
@@ -960,6 +1031,14 @@ void setup(){
 
 void loop(){
     now = millis();
+    if(StartupStart == 0) StartupStart = now;
+
+    if(!startDone){
+        runStartup();
+        display.display();
+        delay(20);
+        return;
+    }
 
     touchInput();
 
