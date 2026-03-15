@@ -289,7 +289,7 @@ void onTouchStart(){
     yawnMouthBlankUntil = 0;
     mouth_shape = MOUTH_NORMAL;
 
-    if(isSleeping || idlePhase >= 3){
+    if(isSleeping){
         currentMode = 0;
         isSleeping = false;
         sleepStartTime = 0;
@@ -309,7 +309,7 @@ void onTouchStart(){
         startDone        = false;
         return;
 
-    }else {
+    }else if(idlePhase >= 3) {
         idlePhase = 0;
         tiredeyes = 0.0f;
         targetTiredEyes = 0.0f;
@@ -317,6 +317,7 @@ void onTouchStart(){
         sleepStartTime = 0;
         currentMouthSize = 9.0;
         targetMouthSize = 9.0;
+        setState(STATE_NORMAL);
     }
     
     if(now - rapidTapWindowStart > RAPID_TAP_WINDOW){
@@ -496,28 +497,30 @@ void doubleTapAction(){
         isSleeping = false;
         sleepStartTime = 0;
         lastInteractionTime = now;
-        if(idlePhase >= 3){
+
+        if(wakeFromSleep || idlePhase >= 3){
+            // wake animation
             idlePhase = 0;
             tiredeyes = 0.0f;
             targetTiredEyes = 0.0f;
-             dizzyEndTime     = 0;        
-            rapidTapCount    = 0;        
-            rapidTapWindowStart = now;   
-            nextLookTime     = now + 5000;
+            dizzyEndTime = 0;
+            rapidTapCount = 0;
+            rapidTapWindowStart = now;
+            nextLookTime = now + 5000;
             currentMouthSize = 2.0f;
-            targetMouthSize  = 9.0f;
-            currentState     = STATE_NORMAL;
-            mouth_shape      = MOUTH_NORMAL;
-            StartupStart     = now;
-            wakeFromSleep    = true;
-            startDone        = false;
+            targetMouthSize = 9.0f;
+            currentState = STATE_NORMAL;
+            mouth_shape = MOUTH_NORMAL;
+            StartupStart = now;
+            wakeFromSleep = true;
+            startDone = false;
         } else {
             idlePhase = 0;
             tiredeyes = 0.0f;
             targetTiredEyes = 0.0f;
             setState(STATE_NORMAL);
         }
-    } else if(startDone) {
+    } else {
         currentMode = 1;
         idlePhase = 0;
     }
@@ -947,6 +950,7 @@ void updateIdle(){
     if(isSleeping && sleepStartTime != 0 && now - sleepStartTime >= 20000){
     currentMode = 1;
     sleepStartTime = 0;
+    wakeFromSleep = true;
     }
 }
 
