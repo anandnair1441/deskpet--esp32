@@ -8,5 +8,5 @@ dev.cpp
 wokwi.toml
 .gitignore
 .vscode
-.include/
-.lib/
+.include
+.lib
