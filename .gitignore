@@ -6,7 +6,6 @@
 .vscode/
 dev.cpp
 wokwi.toml
-.gitignore
 .vscode
 .include
 .lib
