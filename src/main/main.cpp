@@ -1070,8 +1070,13 @@ void runStartup(){
 
 }
 
-
-
+void weatherTask(void* param){
+    for(;;){
+        if(WiFi.status() == WL_CONNECTED)
+            fetchWeather();
+        vTaskDelay(pdMS_TO_TICKS(600000)); // 10 min
+    }
+}
 
 
 
@@ -1082,10 +1087,12 @@ void setup(){
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
+    xTaskCreate(weatherTask, "weather", 8192, NULL, 1, NULL);
+
     display.setTextColor(SSD1306_WHITE);
     
 
-    if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
+    if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){  
         Serial.println("OLED failed");
         for (;;);
     }
@@ -1125,16 +1132,6 @@ void loop(){
             if(getLocalTime(&timeinfo, 1000)){
                 ntpSynced = true;
             }
-        }
-    }
-
-
-    // weather fetch
-    static unsigned long lastWeatherUpdate = 0;
-    if(WiFi.status() == WL_CONNECTED){
-        if(now - lastWeatherUpdate > 600000 || lastWeatherUpdate == 0){
-            fetchWeather();
-            lastWeatherUpdate = now;
         }
     }
 
