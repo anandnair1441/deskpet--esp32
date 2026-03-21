@@ -1198,7 +1198,7 @@ void loop(){
         drawMouth();
         drawCalmBar();
     };
-    
+
     display.display();
 
     delay(20);
