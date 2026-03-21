@@ -1,32 +1,9 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include <Preferences.h>
+#include "weather.h"
 #include <HTTPClient.h>
 #include <Arduino_JSON.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include "time.h"
-#include <math.h>
-#include <Adafruit_SSD1306.h>
-#define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASS "" 
-//#define WIFI_SSID "Anandarnair"
-//#define WIFI_PASS "anandnair12" 
+#include <time.h>
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLR 0x3C
 
-#define NTP_RETRY_INTERVAL 30000
-bool ntpSynced = false;
-unsigned long lastNtpAttempt = 0;
-
-#define GMT_OFFSET   19800
-#define DAYLIGHT_OFF 0
-
-int currentPage = 0;
-unsigned long lastPageSwitch = 0;
-unsigned long lastWeatherUpdate = 0;
 float temperature = 0.0;
 float feelsLike = 0.0;
 int humidity = 0;
@@ -38,8 +15,6 @@ String weatherIcon = "01d";
 String city = "thiruvananthapuram";
 String countryCode = "IN";
 String apiKey = "5f73928eeeb4940a7edbfd2d2926d322";
-
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 
 const unsigned char bmp_rain[] PROGMEM = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x3f,0xf0,0x00,0x00,0x00,0x3f,0xf0,0x00,0x00,0x00,0xc0,0x0c,0x00,0x00,0x00,0xc0,0x0c,0x00,0x00,0x03,0x00,0x03,0x00,0x00,0x03,0x00,0x03,0x00,0x00,0x0f,0x00,0x00,0xc0,0x00,0x0f,0x00,0x00,0xc0,0x00,0x30,0x00,0x00,0xfc,0x00,0x30,0x00,0x00,0xfc,0x00,0xc0,0x00,0x00,0x03,0x00,0xc0,0x00,0x00,0x03,0x00,0xc0,0x00,0x00,0x00,0xc0,0xc0,0x00,0x00,0x00,0xc0,0x30,0x00,0x00,0x00,0xc0,0x30,0x00,0x00,0x00,0xc0,0x0f,0xff,0xff,0xff,0x00,0x0f,0xff,0xff,0xff,0x00,0x00,0x03,0x03,0x00,0x00,0x00,0x03,0x03,0x00,0x00,0x0c,0x0c,0x0c,0x0c,0x00,0x0c,0x0c,0x0c,0x0c,0x00,0x30,0x30,0xc0,0x30,0x00,0x30,0x30,0xc0,0x30,0x00,0xc3,0x03,0x0c,0xc0,0x00,0xc3,0x03,0x0c,0xc0,0x00,0x0c,0x0c,0x30,0x00,0x00,0x0c,0x0c,0x30,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0xc0,0x00,0x00};
@@ -62,54 +37,16 @@ const unsigned char mini_cloud[] PROGMEM = { 0x00, 0x00, 0x00, 0x00, 0x01, 0xc0,
 
 const unsigned char mini_sun[] PROGMEM = {0x01,0x00,0x21,0x08,0x10,0x10,0x03,0x80,0x8f,0xe2,0x4f,0xe4,0x1f,0xf0,0x1f,0xf0,0x1f,0xf0,0x4f,0xe4,0x8f,0xe2,0x03,0x80,0x10,0x10,0x21,0x08,0x01,0x00,0x00,0x00};
 
-struct ForecastDay {
-  String dayName;
-  int temp;
-  String icon;
-};
-
 ForecastDay fcast[3];
-const char* ntpServer = "pool.ntp.org";
-String tzString; 
-
-void drawclock(){
-    struct tm timeinfo;
-
-     if(!getLocalTime(&timeinfo)){
-        display.setTextSize(3);
-        display.setCursor(10, 20);
-        display.print("--:--");
-        return;
-    }
-
-    char timeBuf[6];
-    strftime(timeBuf, sizeof(timeBuf), "%I:%M", &timeinfo);
-
-    char dateBuf[16];
-    strftime(dateBuf, sizeof(dateBuf), "%a, %d %b", &timeinfo);
-
-    char ampmBuf[4];
-    strftime(ampmBuf, sizeof(ampmBuf), "%p", &timeinfo);
-
-    char secBuf[3];
-    strftime(secBuf, sizeof(secBuf), "%S", &timeinfo);
-
-    display.setTextSize(1);
-    display.setCursor(31, 4);
-    display.print(dateBuf);
-
-    display.setTextSize(3);
-    display.setCursor(10, 20);
-    display.print(timeBuf);
-
-    display.setTextSize(1);
-    display.setCursor(105, 20);
-    display.print(ampmBuf);
-
-    display.setTextSize(1);
-    display.setCursor(105, 35);
-    display.print(secBuf);
-
+String getWindDir(int deg){
+    if(deg >= 337 || deg < 23)  return "N";
+    if(deg < 68)                return "NE";
+    if(deg < 113)               return "E";
+    if(deg < 158)               return "SE";
+    if(deg < 203)               return "S";
+    if(deg < 248)               return "SW";
+    if(deg < 293)               return "W";
+    return "NW";
 }
 
 void fetchWeather(){
@@ -153,16 +90,6 @@ void fetchWeather(){
     http.end();
 }
 
-String getWindDir(int deg){
-    if(deg >= 337 || deg < 23)  return "N";
-    if(deg < 68)                return "NE";
-    if(deg < 113)               return "E";
-    if(deg < 158)               return "SE";
-    if(deg < 203)               return "S";
-    if(deg < 248)               return "SW";
-    if(deg < 293)               return "W";
-    return "NW";
-}
 
 void drawWeather(){
     // city name
@@ -291,58 +218,4 @@ void drawForcast(){
         display.print(fcast[i].temp);
         display.print((char)247);
     }
-}
-
-void setup(){
-    Serial.begin(115200);
-    Wire.begin(21, 22);
-    if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){
-        Serial.println("OLED failed");
-        for (;;);
-    }
-
-    display.setTextColor(SSD1306_WHITE);
-    
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    
-
-   
-}
-
-void loop(){
-    unsigned long now = millis();
-
-
-   
-    if(WiFi.status() == WL_CONNECTED){
-        if(now - lastWeatherUpdate > 600000 || lastWeatherUpdate == 0){
-            fetchWeather();
-            lastWeatherUpdate = now;
-        }
-    }
-    
-    if(WiFi.status() == WL_CONNECTED && !ntpSynced){
-        if(lastNtpAttempt == 0 || now - lastNtpAttempt >= NTP_RETRY_INTERVAL){
-            lastNtpAttempt = now;
-            configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
-            struct tm timeinfo;
-            if(getLocalTime(&timeinfo)){
-                ntpSynced = true;
-            }
-        }
-    }
-    if(now - lastPageSwitch > 8000){
-        currentPage = (currentPage + 1) % 3;
-        lastPageSwitch = now;
-        scrollX=0;
-    }
-    display.clearDisplay();
-    if(currentPage == 0) drawclock();
-    else if(currentPage == 1) drawForcast(); 
-    else                drawWeather();
-
-    display.display();
-    
-    delay(20);
 }

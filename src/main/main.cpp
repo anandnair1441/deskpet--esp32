@@ -1,16 +1,21 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include "weather.h"
 #include <WiFi.h>
 #include <time.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <HTTPClient.h>
+#include <Arduino_JSON.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLR 0x3C
 
-#define WIFI_SSID    "Anandarnair"
-#define WIFI_PASS    "anandnair12"
+//#define WIFI_SSID "Wokwi-GUEST"
+//#define WIFI_PASS "" 
+#define WIFI_SSID "Anandarnair"
+#define WIFI_PASS "anandnair12" 
 #define GMT_OFFSET   19800
 #define DAYLIGHT_OFF 0
 
@@ -375,8 +380,8 @@ void onLongRelease(){
 
 void triggerModeChange() {
     currentMode++;
-    if (currentMode > 1) currentMode = 0;
-    //0=pet,1=clocl,2=weatther
+    if (currentMode > 3) currentMode = 0;
+    //0=pet,1=clocl,2=weatther,3=forcast
 }
 
 void tweenEye(EyeState &eye){
@@ -492,8 +497,9 @@ void SingleTapAction(){
 
 void doubleTapAction(){
     if(!startDone) return;
-    if(currentMode == 1){
-        currentMode = 0;
+
+    if(currentMode == 3){
+        triggerModeChange();
         isSleeping = false;
         sleepStartTime = 0;
         lastInteractionTime = now;
@@ -520,10 +526,13 @@ void doubleTapAction(){
             targetTiredEyes = 0.0f;
             setState(STATE_NORMAL);
         }
-    } else {
-        currentMode = 1;
-        idlePhase = 0;
+        return;
     }
+    //cycle modes
+    triggerModeChange();
+
+    if(currentMode == 2) scrollX = 0;
+    if(currentMode == 1){ idlePhase = 0; wakeFromSleep = false; }
 }
 
 void LongPressAction()
@@ -1119,6 +1128,17 @@ void loop(){
         }
     }
 
+
+    // weather fetch
+    static unsigned long lastWeatherUpdate = 0;
+    if(WiFi.status() == WL_CONNECTED){
+        if(now - lastWeatherUpdate > 600000 || lastWeatherUpdate == 0){
+            fetchWeather();
+            lastWeatherUpdate = now;
+        }
+    }
+
+
     if(currentMode == 0){
         if(singleTouch){
             if(currentState != STATE_DIZZY)
@@ -1168,12 +1188,17 @@ void loop(){
     display.clearDisplay();
 
     if(currentMode == 1){
-        drawClock();      
+        drawClock();
+    } else if(currentMode == 2){
+        drawWeather();
+    } else if(currentMode == 3){
+        drawForcast();
     } else if(startDone){
         drawEyes();
         drawMouth();
         drawCalmBar();
-    }
+    };
+    
     display.display();
 
     delay(20);
