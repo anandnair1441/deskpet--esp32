@@ -1070,11 +1070,13 @@ void runStartup(){
 
 }
 
-void weatherTask(void* param){
+void weatherForcastTask(void* param){
+    while(WiFi.status() != WL_CONNECTED){
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
     for(;;){
-        if(WiFi.status() == WL_CONNECTED)
-            fetchWeather();
-        vTaskDelay(pdMS_TO_TICKS(600000)); // 10 min
+        fetchWeather();
+        vTaskDelay(pdMS_TO_TICKS(600000));
     }
 }
 
@@ -1087,7 +1089,7 @@ void setup(){
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    xTaskCreate(weatherTask, "weather", 8192, NULL, 1, NULL);
+    xTaskCreate(weatherForcastTask, "weather", 8192, NULL, 1, NULL);
 
     display.setTextColor(SSD1306_WHITE);
     
