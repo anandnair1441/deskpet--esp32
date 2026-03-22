@@ -53,6 +53,7 @@ String getWindDir(int deg){
 void fetchWeather(){
     if(WiFi.status() != WL_CONNECTED) return;
     HTTPClient http;
+    http.setTimeout(5000);
 
     // current weather
     String url = "http://api.openweathermap.org/data/2.5/weather?q="

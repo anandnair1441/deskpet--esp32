@@ -1089,10 +1089,10 @@ void setup(){
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    xTaskCreate(weatherForcastTask, "weather", 8192, NULL, 1, NULL);
+ 
 
     display.setTextColor(SSD1306_WHITE);
-    
+    xTaskCreate(weatherForcastTask, "weather", 8192, NULL, 1, NULL);  
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, OLR)){  
         Serial.println("OLED failed");
