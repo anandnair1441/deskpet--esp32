@@ -234,8 +234,7 @@ void setEyeOffsets(float ox, float oy){
 //-----------------------INPUT-----------------------
 
 void touchInput(){
-    bool touch = touchRead(TOUCH_PIN) < 60;
-
+    bool touch = digitalRead(TOUCH_PIN) == HIGH;
     // Rise
     if(touch && !isTouching){
         isTouching = 1;
@@ -877,7 +876,7 @@ void updateLook(){
 void drawClock(){
     struct tm timeinfo;
 
-     if(!getLocalTime(&timeinfo)){
+     if(!getLocalTime(&timeinfo, 100)){
         display.setTextSize(3);
         display.setCursor(10, 20);
         display.print("--:--");
@@ -1131,7 +1130,7 @@ void loop(){
             lastNtpAttempt = now;
             configTime(GMT_OFFSET, DAYLIGHT_OFF, "pool.ntp.org");
             struct tm timeinfo;
-            if(getLocalTime(&timeinfo, 1000)){
+            if(getLocalTime(&timeinfo, 100)){
                 ntpSynced = true;
             }
         }
@@ -1152,6 +1151,7 @@ void loop(){
     }
     
     if(doubleTouch){ 
+        //Serial.println("doubleTouch fired, mode=" + String(currentMode) + " startDone=" + String(startDone));
         if(currentState != STATE_DIZZY)
             doubleTapAction(); 
         doubleTouch = 0; 
