@@ -200,8 +200,6 @@ void setState(FaceState State){
             
             if(petCount <= 1)
                 targetMouthSize = 9.0;
-            else if(petCount == 2)
-                targetMouthSize = 7.0;
             else
                 targetMouthSize = 5.0;
             break;
