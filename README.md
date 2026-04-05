@@ -116,8 +116,7 @@ src/
 |-- main.cpp        -- state-machine driven behaviour, face logic, animation, touch input
 |-- weather.cpp     -- fetch, rendering, bitmaps
 |-- weather.h       -- shared types and externs
-secrets.h           -- credentials (gitignored)
-secrets.h.example   -- template
+|-- secrets.h       -- api key and wifi creds
 ```
  
 v2 will decompose `main.cpp` into separate animation, touch, and state modules.
