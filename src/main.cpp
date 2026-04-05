@@ -7,6 +7,7 @@
 #include <Adafruit_SSD1306.h>
 #include <HTTPClient.h>
 #include <Arduino_JSON.h>
+#include "s.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -14,8 +15,8 @@
 
 //#define WIFI_SSID "Wokwi-GUEST"
 //#define WIFI_PASS "" 
-#define WIFI_SSID "Anandarnair"
-#define WIFI_PASS "anandnair12" 
+String WIFI_SSID = wifissid;
+String WIFI_PASS = wifipass; 
 #define GMT_OFFSET   19800
 #define DAYLIGHT_OFF 0
 
