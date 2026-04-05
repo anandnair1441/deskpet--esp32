@@ -1068,8 +1068,14 @@ void runStartup(){
 }
 
 void weatherForcastTask(void* param){
-    while(WiFi.status() != WL_CONNECTED){
+    int retries = 0;
+    while(WiFi.status() != WL_CONNECTED && retries < 20){
         vTaskDelay(pdMS_TO_TICKS(500));
+        retries++;
+    }
+    if(WiFi.status() != WL_CONNECTED){
+        vTaskDelete(NULL);
+        return;
     }
     for(;;){
         fetchWeather();
